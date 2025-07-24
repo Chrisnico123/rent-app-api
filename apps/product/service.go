@@ -1,0 +1,250 @@
+package product
+
+import (
+	"context"
+	"errors"
+	"rent-application/domain"
+	"rent-application/shared/helper"
+	"rent-application/shared/web"
+
+	"github.com/jackc/pgx/v5"
+)
+
+type ProductService interface {
+	// Category operations
+	CreateCategory(ctx context.Context, category Category) error
+	UpdateCategory(ctx context.Context, category Category) error
+	SoftDeleteCategory(ctx context.Context, id string) error
+
+	GetAllCategories(ctx context.Context, filter web.FilterSearchPagination) ([]web.CategoryResponse, int, error)
+	GetCategoryByID(ctx context.Context, id string) (web.CategoryResponse, error)
+
+	// Product operations
+	CreateProduct(ctx context.Context, product Product) error
+	UpdateProduct(ctx context.Context, product Product) error
+	SoftDeleteProduct(ctx context.Context, id string) error
+
+	GetProductByID(ctx context.Context, id string) (web.ProductResponse, error)
+	GetAllProducts(ctx context.Context, filter web.FilterProduct) ([]web.ProductResponseList, int, error)
+}
+
+type productService struct {
+	productRepository ProductRepository
+}
+
+func NewProductService(productRepo ProductRepository) ProductService {
+	return &productService{
+		productRepository: productRepo,
+	}
+}
+
+func (s *productService) GetAllProducts(ctx context.Context, filter web.FilterProduct) ([]web.ProductResponseList, int, error) {
+	domainFilter := domain.ToDomainFilterProduct(filter)
+
+	products, total, err := s.productRepository.GetAllProducts(ctx, domainFilter)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return []web.ProductResponseList{}, 0, nil
+		}
+		return nil, 0, err
+	}
+
+	var productResponses []web.ProductResponseList
+	for _, prod := range products {
+		productResponses = append(productResponses, web.ProductResponseList{
+			ID:        prod.Id,
+			Name:      prod.Name,
+			Img:       prod.Img[0],
+			Category:  prod.Category,
+			Price:     prod.Price,
+			Available: prod.Available,
+			CreatedAt: prod.CreatedAt,
+			UpdatedAt: prod.UpdatedAt,
+		})
+	}
+	return productResponses, total, nil
+}
+
+func (s *productService) CreateProduct(ctx context.Context, product Product) error {
+	if err := product.ValidateProduct(); err != nil {
+		return err
+	}
+
+	domainProduct := domain.Product{
+		ID:          helper.GenerateId(),
+		SellerID:    "asd",
+		Available:   product.Available,
+		Name:        product.Name,
+		CategoryID:  product.CategoryID,
+		Price:       product.Price,
+		Description: product.Description,
+		Img:         product.Img,
+	}
+
+	return s.productRepository.CreateProduct(ctx, domainProduct)
+}
+
+func (s *productService) UpdateProduct(ctx context.Context, product Product) error {
+	if err := product.ValidateProduct(); err != nil {
+		return err
+	}
+
+	data, err := s.productRepository.GetProductByID(ctx, product.ID)
+	if err != nil {
+		return err
+	}
+	if data.ID == "" {
+		return web.ErrNotFound("product not found")
+	}
+
+	domainProduct := domain.Product{
+		ID:          product.ID,
+		SellerID:    data.SellerID, // Keep the existing seller ID
+		Name:        product.Name,
+		Available:   product.Available,
+		CategoryID:  product.CategoryID,
+		Price:       product.Price,
+		Description: product.Description,
+		Img:         product.Img,
+	}
+
+	return s.productRepository.UpdateProduct(ctx, domainProduct)
+}
+
+func (s *productService) SoftDeleteProduct(ctx context.Context, id string) error {
+	if id == "" {
+		return web.ErrBadRequest("product ID cannot be empty")
+	}
+
+	data, err := s.productRepository.GetProductByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if data.ID == "" {
+		return web.ErrNotFound("product not found")
+	}
+
+	return s.productRepository.SoftDeleteProduct(ctx, id)
+}
+
+func (s *productService) GetProductByID(ctx context.Context, id string) (web.ProductResponse, error) {
+	if id == "" {
+		return web.ProductResponse{}, web.ErrBadRequest("product ID cannot be empty")
+	}
+
+	data, err := s.productRepository.GetProductByID(ctx, id)
+	if err != nil {
+		return web.ProductResponse{}, err
+	}
+	if data.ID == "" {
+		return web.ProductResponse{}, web.ErrNotFound("product not found")
+	}
+
+	return web.ProductResponse{
+		ID:           data.ID,
+		Name:         data.Name,
+		Description:  data.Description,
+		Available:    data.Available,
+		Img:          data.Img,
+		CategoryID:   data.CategoryID,
+		CategoryName: data.CategoryName,
+		Price:        data.Price,
+		SellerID:     data.SellerID,
+		CreatedAt:    data.CreatedAt,
+		UpdatedAt:    data.UpdatedAt,
+	}, nil
+}
+
+func (s *productService) GetCategoryByID(ctx context.Context, id string) (web.CategoryResponse, error) {
+	if id == "" {
+		return web.CategoryResponse{}, web.ErrBadRequest("category ID cannot be empty")
+	}
+
+	data, err := s.productRepository.GetCategoryByID(ctx, id)
+	if err != nil {
+		return web.CategoryResponse{}, err
+	}
+	if data.ID == "" {
+		return web.CategoryResponse{}, web.ErrNotFound("category not found")
+	}
+
+	return web.CategoryResponse{
+		ID:   data.ID,
+		Name: data.Name,
+		Img:  data.Img,
+	}, nil
+}
+
+func (s *productService) CreateCategory(ctx context.Context, category Category) error {
+	if err := category.ValidateCategory(); err != nil {
+		return err
+	}
+
+	domainCategory := domain.Category{
+		ID:   helper.GenerateId(),
+		Name: category.Name,
+		Img:  category.Img,
+	}
+
+	return s.productRepository.CreateCategory(ctx, domainCategory)
+}
+
+func (s *productService) UpdateCategory(ctx context.Context, category Category) error {
+	if err := category.ValidateCategory(); err != nil {
+		return err
+	}
+
+	data, err := s.productRepository.GetCategoryByID(ctx, category.ID)
+	if err != nil {
+		return err
+	}
+	if data.ID == "" {
+		return web.ErrNotFound("category not found")
+	}
+
+	domainCategory := domain.Category{
+		ID:   category.ID,
+		Name: category.Name,
+		Img:  category.Img,
+	}
+
+	return s.productRepository.UpdateCategory(ctx, domainCategory)
+}
+
+func (s *productService) SoftDeleteCategory(ctx context.Context, id string) error {
+	if id == "" {
+		return web.ErrBadRequest("category ID cannot be empty")
+	}
+
+	data, err := s.productRepository.GetCategoryByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if data.ID == "" {
+		return web.ErrNotFound("category not found")
+	}
+
+	return s.productRepository.SoftDeleteCategory(ctx, id)
+}
+
+func (s *productService) GetAllCategories(ctx context.Context, filter web.FilterSearchPagination) ([]web.CategoryResponse, int, error) {
+	domainFilter := domain.ToDomainFilterSearchPagination(filter)
+
+	categories, total, err := s.productRepository.GetAllCategories(ctx, domainFilter)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return []web.CategoryResponse{}, 0, nil
+		}
+		return nil, 0, err
+	}
+
+	var categoryResponses []web.CategoryResponse
+	for _, cat := range categories {
+		categoryResponses = append(categoryResponses, web.CategoryResponse{
+			ID:   cat.ID,
+			Name: cat.Name,
+			Img:  cat.Img,
+		})
+	}
+	return categoryResponses, total, nil
+}

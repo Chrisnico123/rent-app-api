@@ -1,0 +1,240 @@
+package product
+
+import (
+	"rent-application/internal/middleware"
+	"rent-application/shared/constants"
+	"rent-application/shared/web"
+	"strconv"
+
+	"github.com/gofiber/fiber/v2"
+)
+
+type categoryController struct {
+	productService ProductService
+}
+
+type CategoryController interface {
+	Route(app *fiber.App)
+}
+
+func NewCategoryController(productService ProductService) CategoryController {
+	return &categoryController{
+		productService: productService,
+	}
+}
+
+func (controller *categoryController) Route(apps *fiber.App) {
+	app := apps.Group("/product")
+
+	// Category routes
+	app.Post("/category",
+		middleware.RoleBasedAuth(constants.RoleAdminString),
+		controller.CreateCategory)
+	app.Put("/category/:id",
+		middleware.RoleBasedAuth(constants.RoleAdminString),
+		controller.UpdateCategory)
+	app.Delete("/category/:id",
+		middleware.RoleBasedAuth(constants.RoleAdminString),
+		controller.DeleteCategory)
+
+	app.Get("/category", controller.ListCategory)
+	app.Get("/category/:id", controller.GetCategoryByID)
+
+	// Product routes
+	app.Post("/",
+		middleware.RoleBasedAuth(constants.RoleSellerString),
+		controller.CreateProduct)
+	app.Put("/:id",
+		middleware.RoleBasedAuth(constants.RoleSellerString),
+		controller.UpdateProduct)
+	app.Delete("/:id",
+		middleware.RoleBasedAuth(constants.RoleSellerString),
+		controller.DeleteProduct)
+
+	app.Get("/:id", controller.GetProductByID)
+	app.Get("/", controller.ListProduct)
+}
+
+func (controller *categoryController) ListProduct(c *fiber.Ctx) error {
+	var filter web.FilterProduct
+	if err := c.QueryParser(&filter); err != nil {
+		return web.ErrValidateBadRequest(err.Error(), filter)
+	}
+	result, count, err := controller.productService.GetAllProducts(c.Context(), filter)
+	if err != nil {
+		return web.ErrInternalServer(err.Error())
+	}
+
+	pageInt, _ := strconv.Atoi(filter.Page)
+
+	return c.Status(fiber.StatusOK).JSON(web.WebResponsePagination{
+		Code:      fiber.StatusOK,
+		Status:    true,
+		Page:      pageInt,
+		Count:     len(result),
+		TotalData: count,
+		Message:   "success",
+		Data:      result,
+	})
+}
+
+func (controller *categoryController) CreateProduct(c *fiber.Ctx) error {
+	var req Product
+	if err := c.BodyParser(&req); err != nil {
+		return web.ErrValidateBadRequest(err.Error(), req)
+	}
+	err := controller.productService.CreateProduct(c.Context(), req)
+	if err != nil {
+		return web.ErrInternalServer(err.Error())
+	}
+	return c.Status(fiber.StatusCreated).JSON(web.WebResponse{
+		Code:    fiber.StatusCreated,
+		Status:  true,
+		Message: "product created successfully",
+	})
+}
+
+func (controller *categoryController) UpdateProduct(c *fiber.Ctx) error {
+	var req Product
+	id := c.Params("id")
+	if err := c.BodyParser(&req); err != nil {
+		return web.ErrValidateBadRequest(err.Error(), req)
+	}
+
+	req.ID = id
+	err := controller.productService.UpdateProduct(c.Context(), req)
+	if err != nil {
+		return web.ErrInternalServer(err.Error())
+	}
+	return c.Status(fiber.StatusOK).JSON(web.WebResponse{
+		Code:    fiber.StatusOK,
+		Status:  true,
+		Message: "product updated successfully",
+	})
+}
+
+func (controller *categoryController) DeleteProduct(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
+		return web.ErrBadRequest("product ID cannot be empty")
+	}
+
+	err := controller.productService.SoftDeleteProduct(c.Context(), id)
+	if err != nil {
+		return web.ErrInternalServer(err.Error())
+	}
+	return c.Status(fiber.StatusOK).JSON(web.WebResponse{
+		Code:    fiber.StatusOK,
+		Status:  true,
+		Message: "product deleted successfully",
+	})
+}
+
+func (controller *categoryController) GetProductByID(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
+		return web.ErrBadRequest("product ID cannot be empty")
+	}
+
+	data, err := controller.productService.GetProductByID(c.Context(), id)
+	if err != nil {
+		return web.ErrInternalServer(err.Error())
+	}
+
+	return c.Status(fiber.StatusOK).JSON(web.WebResponse{
+		Code:    fiber.StatusOK,
+		Status:  true,
+		Message: "success",
+		Data:    data,
+	})
+}
+
+func (controller *categoryController) GetCategoryByID(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
+		return web.ErrBadRequest("category ID cannot be empty")
+	}
+
+	data, err := controller.productService.GetCategoryByID(c.Context(), id)
+	if err != nil {
+		return web.ErrInternalServer(err.Error())
+	}
+
+	return c.Status(fiber.StatusOK).JSON(web.WebResponse{
+		Code:    fiber.StatusOK,
+		Status:  true,
+		Message: "success",
+		Data:    data,
+	})
+}
+
+func (controller *categoryController) CreateCategory(c *fiber.Ctx) error {
+	var req Category
+	if err := c.BodyParser(&req); err != nil {
+		return web.ErrValidateBadRequest(err.Error(), req)
+	}
+	err := controller.productService.CreateCategory(c.Context(), req)
+	if err != nil {
+		return web.ErrInternalServer(err.Error())
+	}
+	return c.Status(fiber.StatusCreated).JSON(web.WebResponse{
+		Code:    fiber.StatusCreated,
+		Status:  true,
+		Message: "category created successfully",
+	})
+}
+
+func (controller *categoryController) UpdateCategory(c *fiber.Ctx) error {
+	var req Category
+	id := c.Params("id")
+	if err := c.BodyParser(&req); err != nil {
+		return web.ErrValidateBadRequest(err.Error(), req)
+	}
+
+	req.ID = id
+	err := controller.productService.UpdateCategory(c.Context(), req)
+	if err != nil {
+		return web.ErrInternalServer(err.Error())
+	}
+	return c.Status(fiber.StatusOK).JSON(web.WebResponse{
+		Code:    fiber.StatusOK,
+		Status:  true,
+		Message: "category updated successfully",
+	})
+}
+
+func (controller *categoryController) DeleteCategory(c *fiber.Ctx) error {
+	id := c.Params("id")
+	err := controller.productService.SoftDeleteCategory(c.Context(), id)
+	if err != nil {
+		return web.ErrInternalServer(err.Error())
+	}
+	return c.Status(fiber.StatusOK).JSON(web.WebResponse{
+		Code:    fiber.StatusOK,
+		Status:  true,
+		Message: "category deleted successfully",
+	})
+}
+
+func (controller *categoryController) ListCategory(c *fiber.Ctx) error {
+	var filter web.FilterSearchPagination
+	if err := c.QueryParser(&filter); err != nil {
+		return web.ErrValidateBadRequest(err.Error(), filter)
+	}
+	result, count, err := controller.productService.GetAllCategories(c.Context(), filter)
+	if err != nil {
+		return web.ErrInternalServer(err.Error())
+	}
+
+	pageInt, _ := strconv.Atoi(filter.Page)
+
+	return c.Status(fiber.StatusOK).JSON(web.WebResponsePagination{
+		Code:      fiber.StatusOK,
+		Status:    true,
+		Page:      pageInt,
+		Count:     len(result),
+		TotalData: count,
+		Message:   "success",
+		Data:      result,
+	})
+}

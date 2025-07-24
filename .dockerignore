@@ -1,0 +1,3 @@
+internal/database/migrations/
+*.env
+.env
