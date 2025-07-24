@@ -26,6 +26,13 @@ type ProductService interface {
 
 	GetProductByID(ctx context.Context, id string) (web.ProductResponse, error)
 	GetAllProducts(ctx context.Context, filter web.FilterProduct) ([]web.ProductResponseList, int, error)
+
+	CreateBanner(ctx context.Context, banner BannerRequest) error
+	UpdateBanner(ctx context.Context, id string, banner BannerRequest) error
+	DeleteBanner(ctx context.Context, id string) error
+
+	GetBannerById(ctx context.Context, id string) (web.Banner, error)
+	GetListBanner(ctx context.Context, filter web.FilterBannerPagination) ([]web.Banner, int, error)
 }
 
 type productService struct {
@@ -36,6 +43,89 @@ func NewProductService(productRepo ProductRepository) ProductService {
 	return &productService{
 		productRepository: productRepo,
 	}
+}
+
+func (s *productService) CreateBanner(ctx context.Context, banner BannerRequest) error {
+	if err := banner.ValidateBanner(); err != nil {
+		return err
+	}
+
+	domainBanner := domain.Banner{
+		Id:   helper.GenerateId(),
+		Name: banner.Name,
+		Img:  banner.Img,
+	}
+
+	return s.productRepository.CreateBanner(ctx, domainBanner)
+}
+
+func (s *productService) UpdateBanner(ctx context.Context, id string, banner BannerRequest) error {
+	if err := banner.ValidateBanner(); err != nil {
+		return err
+	}
+
+	data, _ := s.productRepository.GetBannerById(ctx, id)
+	if data.Id == "" {
+		return web.ErrNotFound("banner not found")
+	}
+
+	domainBanner := domain.Banner{
+		Id:   id,
+		Name: banner.Name,
+		Img:  banner.Img,
+	}
+
+	return s.productRepository.UpdateBanner(ctx, domainBanner)
+}
+
+func (s *productService) DeleteBanner(ctx context.Context, id string) error {
+	if id == "" {
+		return web.ErrBadRequest("banner ID cannot be empty")
+	}
+
+	data, _ := s.productRepository.GetBannerById(ctx, id)
+	if data.Id == "" {
+		return web.ErrNotFound("banner not found")
+	}
+
+	return s.productRepository.DeleteBanner(ctx, id)
+}
+
+func (s *productService) GetBannerById(ctx context.Context, id string) (web.Banner, error) {
+	data, err := s.productRepository.GetBannerById(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return web.Banner{}, web.ErrNotFound("no active banner found")
+		}
+		return web.Banner{}, err
+	}
+
+	return web.Banner{
+		Id:   data.Id,
+		Name: data.Name,
+		Img:  data.Img,
+	}, nil
+}
+
+func (s *productService) GetListBanner(ctx context.Context, filter web.FilterBannerPagination) ([]web.Banner, int, error) {
+	banners, total, err := s.productRepository.GetListBanner(ctx, domain.ToDomainFilterBannerPagination(filter))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return []web.Banner{}, 0, nil
+		}
+		return nil, 0, err
+	}
+
+	var bannerResponses []web.Banner
+	for _, banner := range banners {
+		bannerResponses = append(bannerResponses, web.Banner{
+			Id:   banner.Id,
+			Name: banner.Name,
+			Img:  banner.Img,
+		})
+	}
+
+	return bannerResponses, total, nil
 }
 
 func (s *productService) GetAllProducts(ctx context.Context, filter web.FilterProduct) ([]web.ProductResponseList, int, error) {

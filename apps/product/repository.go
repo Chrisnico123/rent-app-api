@@ -25,6 +25,14 @@ type ProductRepository interface {
 
 	GetProductByID(ctx context.Context, id string) (domain.ProductResponse, error)
 	GetAllProducts(ctx context.Context, filter domain.FilterProduct) ([]domain.ProductResponseList, int, error)
+
+	// Banner operations
+	CreateBanner(ctx context.Context, banner domain.Banner) error
+	UpdateBanner(ctx context.Context, banner domain.Banner) error
+	DeleteBanner(ctx context.Context, id string) error
+
+	GetBannerById(ctx context.Context, id string) (domain.Banner, error)
+	GetListBanner(ctx context.Context, filter domain.FilterBannerPagination) ([]domain.Banner, int, error)
 }
 
 type productRepository struct {
@@ -37,6 +45,52 @@ func NewProductRepository(db database.Store, productQuery ProductQuery) ProductR
 		db:           db,
 		productQuery: productQuery,
 	}
+}
+
+func (r *productRepository) CreateBanner(ctx context.Context, banner domain.Banner) error {
+	return r.db.WithTransaction(ctx, func(tx pgx.Tx) error {
+		return r.productQuery.CreateBanner(ctx, tx, banner)
+	})
+}
+
+func (r *productRepository) UpdateBanner(ctx context.Context, banner domain.Banner) error {
+	return r.db.WithTransaction(ctx, func(tx pgx.Tx) error {
+		return r.productQuery.UpdateBanner(ctx, tx, banner)
+	})
+}
+
+func (r *productRepository) DeleteBanner(ctx context.Context, id string) error {
+	return r.db.WithTransaction(ctx, func(tx pgx.Tx) error {
+		return r.productQuery.DeleteBanner(ctx, tx, id)
+	})
+}
+
+func (r *productRepository) GetBannerById(ctx context.Context, id string) (domain.Banner, error) {
+	var banner domain.Banner
+	err := r.db.WithoutTransaction(ctx, func(db *pgxpool.Pool) error {
+		var err error
+		banner, err = r.productQuery.GetBannerById(ctx, db, id)
+		return err
+	})
+	return banner, err
+}
+
+func (r *productRepository) GetListBanner(ctx context.Context, filter domain.FilterBannerPagination) ([]domain.Banner, int, error) {
+	var banners []domain.Banner
+	var total int
+
+	err := r.db.WithoutTransaction(ctx, func(db *pgxpool.Pool) error {
+		var err error
+		if banners, err = r.productQuery.GetListBanner(ctx, db, filter); err != nil {
+			return err
+		}
+		if total, err = r.productQuery.CountListBanner(ctx, db, filter); err != nil {
+			return err
+		}
+		return nil
+	})
+
+	return banners, total, err
 }
 
 func (r *productRepository) GetAllProducts(ctx context.Context, filter domain.FilterProduct) ([]domain.ProductResponseList, int, error) {

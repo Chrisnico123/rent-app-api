@@ -3,9 +3,9 @@ package product
 import "fmt"
 
 type Category struct {
-	ID   string `query:"id"`
-	Name string `query:"name"`
-	Img  string `query:"img"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Img  string `json:"img"`
 }
 
 func (c Category) ValidateCategory() error {
@@ -43,6 +43,21 @@ func (p Product) ValidateProduct() error {
 	}
 	if len(p.Img) == 0 {
 		return fmt.Errorf("product images cannot be empty")
+	}
+	return nil
+}
+
+type BannerRequest struct {
+	Name string `json:"name"`
+	Img  string `json:"img"`
+}
+
+func (c BannerRequest) ValidateBanner() error {
+	if c.Name == "" {
+		return fmt.Errorf("banner name cannot be empty")
+	}
+	if c.Img == "" {
+		return fmt.Errorf("banner image cannot be empty")
 	}
 	return nil
 }

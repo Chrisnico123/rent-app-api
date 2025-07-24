@@ -53,6 +53,122 @@ func (controller *categoryController) Route(apps *fiber.App) {
 
 	app.Get("/:id", controller.GetProductByID)
 	app.Get("/", controller.ListProduct)
+
+	// Banner routes
+	app.Post("/banner",
+		middleware.RoleBasedAuth(constants.RoleAdminString),
+		controller.CreateBanner)
+	app.Put("/banner/:id",
+		middleware.RoleBasedAuth(constants.RoleAdminString),
+		controller.UpdateBanner)
+	app.Delete("/banner/:id",
+		middleware.RoleBasedAuth(constants.RoleAdminString),
+		controller.DeleteBanner)
+
+	app.Get("/banner/list", controller.ListBanner)
+	app.Get("/banner/:id", controller.GetBannerById)
+}
+
+func (controller *categoryController) CreateBanner(c *fiber.Ctx) error {
+	var req BannerRequest
+	if err := c.BodyParser(&req); err != nil {
+		return web.ErrValidateBadRequest(err.Error(), req)
+	}
+
+	err := controller.productService.CreateBanner(c.Context(), req)
+	if err != nil {
+		return web.ErrInternalServer(err.Error())
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(web.WebResponse{
+		Code:    fiber.StatusCreated,
+		Status:  true,
+		Message: "banner created successfully",
+	})
+}
+
+func (controller *categoryController) UpdateBanner(c *fiber.Ctx) error {
+	var req BannerRequest
+	id := c.Params("id")
+	if id == "" {
+		return web.ErrBadRequest("banner ID cannot be empty")
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return web.ErrValidateBadRequest(err.Error(), req)
+	}
+
+	err := controller.productService.UpdateBanner(c.Context(), id, req)
+	if err != nil {
+		return err
+	}
+
+	return c.Status(fiber.StatusOK).JSON(web.WebResponse{
+		Code:    fiber.StatusOK,
+		Status:  true,
+		Message: "banner updated successfully",
+	})
+}
+
+func (controller *categoryController) DeleteBanner(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
+		return web.ErrBadRequest("banner ID cannot be empty")
+	}
+
+	err := controller.productService.DeleteBanner(c.Context(), id)
+	if err != nil {
+		return web.ErrInternalServer(err.Error())
+	}
+
+	return c.Status(fiber.StatusOK).JSON(web.WebResponse{
+		Code:    fiber.StatusOK,
+		Status:  true,
+		Message: "banner deleted successfully",
+	})
+}
+
+func (controller *categoryController) GetBannerById(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
+		return web.ErrBadRequest("banner ID cannot be empty")
+	}
+
+	data, err := controller.productService.GetBannerById(c.Context(), id)
+	if err != nil {
+		return err
+	}
+
+	return c.Status(fiber.StatusOK).JSON(web.WebResponse{
+		Code:    fiber.StatusOK,
+		Status:  true,
+		Message: "success",
+		Data:    data,
+	})
+}
+
+func (controller *categoryController) ListBanner(c *fiber.Ctx) error {
+	var filter web.FilterBannerPagination
+	if err := c.QueryParser(&filter); err != nil {
+		return web.ErrValidateBadRequest(err.Error(), filter)
+	}
+
+	result, count, err := controller.productService.GetListBanner(c.Context(), filter)
+	if err != nil {
+		return err
+	}
+
+	pageInt, _ := strconv.Atoi(filter.Page)
+
+	return c.Status(fiber.StatusOK).JSON(web.WebResponsePagination{
+		Code:      fiber.StatusOK,
+		Status:    true,
+		Page:      pageInt,
+		Count:     len(result),
+		TotalData: count,
+		Message:   "success",
+		Data:      result,
+	})
 }
 
 func (controller *categoryController) ListProduct(c *fiber.Ctx) error {

@@ -3,7 +3,7 @@
 # Configuration
 DOCKER_USERNAME := chrisnico
 APP_NAME := rent-application
-VERSION := 1.1.2
+VERSION := 1.1.3
 BUILD_DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 GIT_COMMIT := $(shell git rev-parse --short HEAD)
 

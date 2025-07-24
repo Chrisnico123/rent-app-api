@@ -31,6 +31,15 @@ type ProductQuery interface {
 	GetProductByID(ctx context.Context, db *pgxpool.Pool, id string) (domain.ProductResponse, error)
 	GetAllProducts(ctx context.Context, db *pgxpool.Pool, filter domain.FilterProduct) ([]domain.ProductResponseList, error)
 	CountAllProducts(ctx context.Context, db *pgxpool.Pool, filter domain.FilterProduct) (int, error)
+
+	// Banner operations
+	CreateBanner(ctx context.Context, tx pgx.Tx, req domain.Banner) error
+	UpdateBanner(ctx context.Context, tx pgx.Tx, req domain.Banner) error
+	DeleteBanner(ctx context.Context, tx pgx.Tx, id string) error
+
+	GetBannerById(ctx context.Context, db *pgxpool.Pool, id string) (domain.Banner, error)
+	GetListBanner(ctx context.Context, db *pgxpool.Pool, filter domain.FilterBannerPagination) ([]domain.Banner, error)
+	CountListBanner(ctx context.Context, db *pgxpool.Pool, filter domain.FilterBannerPagination) (int, error)
 }
 
 type ProductQueryImpl struct {
@@ -38,6 +47,118 @@ type ProductQueryImpl struct {
 
 func NewProductQuery() ProductQuery {
 	return &ProductQueryImpl{}
+}
+
+// GetBannerById implements ProductQuery.
+func (q *ProductQueryImpl) GetBannerById(ctx context.Context, db *pgxpool.Pool, id string) (domain.Banner, error) {
+	query := `
+	SELECT 
+		id, name, img FROM banner 
+	WHERE delete_at IS NULL AND id = $1
+	ORDER BY created_at`
+
+	var banner domain.Banner
+	err := db.QueryRow(ctx, query, id).Scan(&banner.Id, &banner.Name, &banner.Img)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return domain.Banner{}, pgx.ErrNoRows
+		}
+		return domain.Banner{}, err
+	}
+
+	return banner, nil
+}
+
+// GetListBanner implements ProductQuery.
+func (q *ProductQueryImpl) GetListBanner(ctx context.Context, db *pgxpool.Pool, filter domain.FilterBannerPagination) ([]domain.Banner, error) {
+	filterQuery, pagination := filter.QueryBuildFilterSearchPagination()
+
+	query := fmt.Sprintf(`
+	SELECT 
+		b.id, b.name, b.img 
+	FROM banner b
+	WHERE 
+		delete_at IS NULL %s
+	%s`, filterQuery, pagination)
+
+	rows, err := db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var banners []domain.Banner
+	for rows.Next() {
+		var banner domain.Banner
+		if err := rows.Scan(&banner.Id, &banner.Name, &banner.Img); err != nil {
+			return nil, err
+		}
+		banners = append(banners, banner)
+	}
+
+	if len(banners) == 0 {
+		return nil, pgx.ErrNoRows
+	}
+
+	return banners, nil
+}
+
+// CountListBanner implements ProductQuery.
+func (q *ProductQueryImpl) CountListBanner(ctx context.Context, db *pgxpool.Pool, filter domain.FilterBannerPagination) (int, error) {
+	filterQuery, _ := filter.QueryBuildFilterSearchPagination()
+
+	query := fmt.Sprintf(`
+	SELECT 
+		COUNT(*) 
+	FROM banner b
+	WHERE %s
+	delete_at IS NULL`, filterQuery)
+
+	var count int
+	err := db.QueryRow(ctx, query).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
+// CreateBanner implements ProductQuery.
+func (q *ProductQueryImpl) CreateBanner(ctx context.Context, tx pgx.Tx, req domain.Banner) error {
+	query := `INSERT INTO banner (id, name, img) VALUES ($1, $2, $3)`
+	_, err := tx.Exec(ctx, query, req.Id, req.Name, req.Img)
+	return err
+}
+
+// UpdateBanner implements ProductQuery.
+func (q *ProductQueryImpl) UpdateBanner(ctx context.Context, tx pgx.Tx, req domain.Banner) error {
+	query := `UPDATE banner SET name = $1, img = $2 WHERE id = $3 AND delete_at IS NULL`
+	result, err := tx.Exec(ctx, query, req.Name, req.Img, req.Id)
+	if err != nil {
+		return err
+	}
+
+	// Check if any row was actually updated
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("banner with id %s not found or already deleted", req.Id)
+	}
+
+	return nil
+}
+
+// DeleteBanner implements ProductQuery.
+func (q *ProductQueryImpl) DeleteBanner(ctx context.Context, tx pgx.Tx, id string) error {
+	query := `UPDATE banner SET delete_at = NOW() WHERE id = $1 AND delete_at IS NULL`
+	result, err := tx.Exec(ctx, query, id)
+	if err != nil {
+		return err
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("banner with id %s not found or already deleted", id)
+	}
+
+	return nil
 }
 
 func (q *ProductQueryImpl) UpdateAvailableProduct(ctx context.Context, tx pgx.Tx, id string, available bool) error {
