@@ -1,8 +1,15 @@
 package domain
 
 type User struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Email string `json:"email"`
-	Level int8   `json:"level"`
+	ID    string
+	Name  string
+	Email string
+	Img   *string
+	Level int8
+}
+
+type UserRequest struct {
+	Id   string
+	Name string
+	Img  string
 }

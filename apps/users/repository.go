@@ -5,11 +5,13 @@ import (
 	"rent-application/domain"
 	"rent-application/internal/database"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type UsersRepository interface {
 	GetUserById(ctx context.Context, userId string) (domain.User, error)
+	UpdateUserProfile(ctx context.Context, req domain.UserRequest) error
 }
 
 type usersRepository struct {
@@ -22,6 +24,12 @@ func NewUsersRepository(db database.Store, usersQuery UsersQuery) UsersRepositor
 		db:         db,
 		usersQuery: usersQuery,
 	}
+}
+
+func (u *usersRepository) UpdateUserProfile(ctx context.Context, req domain.UserRequest) error {
+	return u.db.WithTransaction(ctx, func(tx pgx.Tx) error {
+		return u.usersQuery.UpdateUserProfile(ctx, tx, req)
+	})
 }
 
 // GetUserById implements UsersRepository.
