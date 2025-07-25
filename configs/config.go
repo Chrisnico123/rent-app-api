@@ -23,6 +23,11 @@ type Config struct {
 	Permission Permission       `yaml:"permission"`
 	Email      EmailConfig      `yaml:"email"`
 	Xendit     XenditConfig     `yaml:"xendit"`
+	SecretKey  SecretConfig     `yaml:"secret_key"`
+}
+
+type SecretConfig struct {
+	Key string `yaml:"key"`
 }
 
 type XenditConfig struct {
@@ -155,6 +160,7 @@ func loadFromEnv() {
 	Cfg.Permission.UserAdmin = getEnv("PERMISSION_USER_ADMIN", "user_admin")
 
 	Cfg.Xendit.ApiKey = getEnv("API_KEY_XENDIT", "")
+	Cfg.SecretKey.Key = getEnv("APP_ENCRYPTION_KEY", "")
 }
 
 // Helper function to get environment variable with default value

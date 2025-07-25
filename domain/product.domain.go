@@ -7,6 +7,18 @@ import (
 	"strconv"
 )
 
+type GetProductBook struct {
+	ProductId string
+	UserId    string
+}
+
+type GetDataProductBook struct {
+	ProductId string
+	Name      string
+	Price     float64
+	IsUpload  bool
+}
+
 type Product struct {
 	ID          string   `json:"id"`
 	SellerID    string   `json:"seller_id"`

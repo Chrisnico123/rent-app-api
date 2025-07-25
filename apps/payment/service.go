@@ -17,8 +17,9 @@ import (
 
 type PaymentService interface {
 	GetPaymentByOrderId(ctx context.Context, orderId string) (web.PaymentHistory, error)
+	GetPaymentListPayment(ctx context.Context, filter web.FIlterPaymentHistory) ([]web.PaymentHistoryResponse, int, error)
 
-	CreateBooking(ctx context.Context, userId string, req web.BookRequest) (web.PaymentHistory, error)
+	CreateBooking(ctx context.Context, userId string, req BookRequest) (web.PaymentHistory, error)
 	AfterPaymentHandler(ctx context.Context, request web.XenditVACallback) error
 }
 
@@ -34,6 +35,39 @@ func NewPaymentService(paymentRepository PaymentRepository, productRepository pr
 		productRepository: productRepository,
 		authRepository:    authRepository,
 	}
+}
+
+// GetPaymentListPayment implements PaymentService.
+func (s *paymentService) GetPaymentListPayment(ctx context.Context, filter web.FIlterPaymentHistory) ([]web.PaymentHistoryResponse, int, error) {
+	// Convert web filter to domain filter
+	domainFilter := domain.ToDomainFilterPaymentHistory(filter)
+
+	// Get data from repository
+	datas, count, err := s.paymentRepository.GetListPaymentHistory(ctx, domainFilter)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return []web.PaymentHistoryResponse{}, 0, nil
+		}
+		return []web.PaymentHistoryResponse{}, 0, web.ErrInternalServer(err.Error())
+	}
+
+	// Convert domain models to web responses
+	list := make([]web.PaymentHistoryResponse, 0, len(datas))
+	for _, v := range datas {
+		data := web.PaymentHistoryResponse{
+			OrderId:     v.OrderId,
+			ProductName: v.ProductName,
+			Price:       v.Price,
+			Img:         v.Img[0],
+			Status:      v.Status,
+			Method:      v.Method,
+			CreatedDate: v.CreatedDate,
+			ExpiredDate: v.ExpiredDate,
+		}
+		list = append(list, data)
+	}
+
+	return list, count, nil
 }
 
 func (s *paymentService) GetPaymentByOrderId(ctx context.Context, orderId string) (web.PaymentHistory, error) {
@@ -56,6 +90,8 @@ func (s *paymentService) GetPaymentByOrderId(ctx context.Context, orderId string
 	response := web.PaymentHistory{
 		ID:        paymentHistory.ID,
 		UserID:    paymentHistory.UserID,
+		Username:  paymentHistory.Username,
+		Email:     paymentHistory.Email,
 		PaymentId: paymentHistory.PaymentId,
 		OrderID:   paymentHistory.OrderID,
 		VAID:      paymentHistory.VAID,
@@ -93,20 +129,24 @@ func (s *paymentService) AfterPaymentHandler(ctx context.Context, callbackPayloa
 	// Process different events
 	switch callbackPayload.Event {
 	case "payment_method.expired":
-		// Handle expired payment
-		err := s.paymentRepository.UpdatePaymentStatus(ctx, callbackPayload.Data.ReferenceID, callbackPayload.Data.Status)
+		err := s.paymentRepository.UpdatePaymentStatus(ctx, callbackPayload.Data.ReferenceID, "EXPIRED")
 		if err != nil {
 			log.Println(err)
 		}
-
 		log.Printf("Payment expired: %s", callbackPayload.Data.ReferenceID)
 	case "payment_method.activated":
+		err := s.paymentRepository.UpdatePaymentStatus(ctx, callbackPayload.Data.ReferenceID, "ACTIVATED")
+		if err != nil {
+			log.Println(err)
+		}
 		log.Printf("Payment activated: %s", callbackPayload.Data.ReferenceID)
 	case "payment_method.failed":
-		// Handle failed payment
+		err := s.paymentRepository.UpdatePaymentStatus(ctx, callbackPayload.Data.ReferenceID, "FAILED")
+		if err != nil {
+			log.Println(err)
+		}
 		log.Printf("Payment failed: %s", callbackPayload.Data.ReferenceID)
 	case "payment.succeeded":
-		// Handle activated payment
 		err := s.paymentRepository.AfterPaymentHandler(ctx, callbackPayload.Data.PaymentMethod.ReferenceID)
 		if err != nil {
 			return err
@@ -119,10 +159,15 @@ func (s *paymentService) AfterPaymentHandler(ctx context.Context, callbackPayloa
 	return nil
 }
 
-func (s *paymentService) CreateBooking(ctx context.Context, userId string, req web.BookRequest) (web.PaymentHistory, error) {
-	product, err := s.productRepository.GetProductByID(ctx, req.ProductId)
+func (s *paymentService) CreateBooking(ctx context.Context, userId string, req BookRequest) (web.PaymentHistory, error) {
+	err := req.Validate()
 	if err != nil {
-		return web.PaymentHistory{}, fmt.Errorf("failed to get product: %w", err)
+		return web.PaymentHistory{}, web.ErrBadRequest(err.Error())
+	}
+	product, err := s.productRepository.GetProductByID(ctx, req.ProductId)
+
+	if err != nil {
+		return web.PaymentHistory{}, web.ErrInternalServer(err.Error())
 	}
 	if product.ID == "" {
 		return web.PaymentHistory{}, web.ErrNotFound("product not found")
@@ -130,6 +175,23 @@ func (s *paymentService) CreateBooking(ctx context.Context, userId string, req w
 
 	if !product.Available {
 		return web.PaymentHistory{}, web.ErrBadRequest("product not available, please check another product")
+	}
+
+	var reqImg domain.EncryptedImg
+	var reqIvs domain.EncryptedIv
+
+	if req.File != "" {
+		reqImg.Id = helper.GenerateId()
+		reqImg.UserId = userId
+
+		reqIvs.Id = helper.GenerateId()
+		reqIvs.EncryId = reqImg.Id
+
+		// Encrypted Data
+		reqImg.EncryUrl, reqIvs.Ivs, err = helper.Encrypt(req.File)
+		if err != nil {
+			return web.PaymentHistory{}, err
+		}
 	}
 
 	// Determine bank code based on TypeVA
@@ -167,42 +229,24 @@ func (s *paymentService) CreateBooking(ctx context.Context, userId string, req w
 		ID:        helper.GenerateId(),
 		UserID:    userId,
 		PaymentId: resp.PaymentMethod.Id,
+		StartDate: req.StartdDate,
+		EndDate:   req.EndDate,
+		Desc:      req.Desc,
 		OrderID:   *resp.PaymentMethod.ReferenceId,
 		ProductID: &req.ProductId,
 		Type:      paymentType,
 		Price:     product.Price,
 	}
 
-	err = s.paymentRepository.CreateOrder(ctx, orderReq, paymentReq)
+	err = s.paymentRepository.CreateOrder(ctx, orderReq, paymentReq, reqImg, reqIvs)
 	if err != nil {
 		return web.PaymentHistory{}, web.ErrInternalServer(err.Error())
 	}
 
-	paymentHistory, err := s.paymentRepository.GetPaymentByOrderID(ctx, paymentReq.OrderID)
+	data, err := s.GetPaymentByOrderId(ctx, orderReq.OrderID)
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			return web.PaymentHistory{}, web.ErrNotFound("payment not found")
-		}
 		return web.PaymentHistory{}, web.ErrInternalServer(err.Error())
 	}
 
-	res := web.PaymentHistory{
-		ID:        paymentHistory.ID,
-		UserID:    userId,
-		PaymentId: paymentHistory.PaymentId,
-		OrderID:   paymentHistory.OrderID,
-		Status:    paymentHistory.Status,
-		ProductDetail: web.ProductDetail{
-			Name:         product.Name,
-			Price:        product.Price,
-			Description:  product.Description,
-			CategoryName: product.CategoryName,
-			Img:          product.Img[0],
-		},
-		CreatedAt: paymentHistory.CreatedAt,
-		UpdatedAt: paymentHistory.UpdatedAt,
-		ExpiredAt: paymentHistory.ExpiredAt,
-	}
-
-	return res, nil
+	return data, nil
 }

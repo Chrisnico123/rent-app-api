@@ -11,7 +11,7 @@ import (
 )
 
 type PaymentRepository interface {
-	CreateOrder(ctx context.Context, order domain.OrderUser, payment domain.PaymentHistory) error
+	CreateOrder(ctx context.Context, order domain.OrderUser, payment domain.PaymentHistory, encryImg domain.EncryptedImg, encryIv domain.EncryptedIv) error
 	AfterPaymentHandler(ctx context.Context, orderId string) error
 
 	CreatePayment(ctx context.Context, payment domain.PaymentHistory) error
@@ -19,7 +19,11 @@ type PaymentRepository interface {
 	GetOrdersByUserID(ctx context.Context, userID string, filter domain.FilterSearchPagination) ([]domain.OrderUser, int, error)
 	GetPaymentByOrderID(ctx context.Context, orderId string) (domain.PaymentResponse, error)
 	GetPaymentsByOrderID(ctx context.Context, orderID string) (domain.PaymentHistory, error)
+	GetListPaymentHistory(ctx context.Context, filter domain.FilterPaymentHistory) ([]domain.PaymentHistoryResponse, int, error)
 	UpdatePaymentStatus(ctx context.Context, paymentID string, status string) error
+
+	// Data Crucial
+	GetDataEncryImg(ctx context.Context, userId string) (domain.DataEncryRes, error)
 }
 
 type paymentRepository struct {
@@ -34,6 +38,37 @@ func NewPaymentRepository(db database.Store, paymentQuery PaymentQuery, productQ
 		paymentQuery: paymentQuery,
 		productQuery: productQuery,
 	}
+}
+
+// GetListPaymentHistory implements PaymentRepository.
+func (r *paymentRepository) GetListPaymentHistory(ctx context.Context, filter domain.FilterPaymentHistory) ([]domain.PaymentHistoryResponse, int, error) {
+	var payment []domain.PaymentHistoryResponse
+	var count int
+	err := r.db.WithoutTransaction(ctx, func(db *pgxpool.Pool) error {
+		var err error
+		payment, err = r.paymentQuery.GetPaymentHistory(ctx, db, filter)
+		if err != nil {
+			return err
+		}
+
+		count, err = r.paymentQuery.CountPaymentHistory(ctx, db, filter)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+	return payment, count, err
+}
+
+func (r *paymentRepository) GetDataEncryImg(ctx context.Context, userId string) (domain.DataEncryRes, error) {
+	var result domain.DataEncryRes
+	err := r.db.WithoutTransaction(ctx, func(db *pgxpool.Pool) error {
+		var err error
+		result, err = r.paymentQuery.GetDataEncryImg(ctx, db, userId)
+		return err
+	})
+	return result, err
 }
 
 // GetPaymentByOrderID implements PaymentRepository.
@@ -68,7 +103,7 @@ func (r *paymentRepository) AfterPaymentHandler(ctx context.Context, orderId str
 	})
 }
 
-func (r *paymentRepository) CreateOrder(ctx context.Context, order domain.OrderUser, payment domain.PaymentHistory) error {
+func (r *paymentRepository) CreateOrder(ctx context.Context, order domain.OrderUser, payment domain.PaymentHistory, encryImg domain.EncryptedImg, encryIv domain.EncryptedIv) error {
 	return r.db.WithTransaction(ctx, func(tx pgx.Tx) error {
 		if err := r.paymentQuery.CreatePayment(ctx, tx, payment); err != nil {
 			return err
@@ -76,6 +111,16 @@ func (r *paymentRepository) CreateOrder(ctx context.Context, order domain.OrderU
 
 		if err := r.paymentQuery.CreateBooking(ctx, tx, order); err != nil {
 			return err
+		}
+
+		if encryImg.Id != "" {
+			if err := r.paymentQuery.CreateEncryptedImg(ctx, tx, encryImg); err != nil {
+				return err
+			}
+
+			if err := r.paymentQuery.CreateEncryptedIv(ctx, tx, encryIv); err != nil {
+				return err
+			}
 		}
 
 		return nil

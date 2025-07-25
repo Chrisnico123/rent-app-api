@@ -25,6 +25,7 @@ type ProductRepository interface {
 
 	GetProductByID(ctx context.Context, id string) (domain.ProductResponse, error)
 	GetAllProducts(ctx context.Context, filter domain.FilterProduct) ([]domain.ProductResponseList, int, error)
+	GetProductBookById(ctx context.Context, req domain.GetProductBook) (domain.GetDataProductBook, error)
 
 	// Banner operations
 	CreateBanner(ctx context.Context, banner domain.Banner) error
@@ -45,6 +46,16 @@ func NewProductRepository(db database.Store, productQuery ProductQuery) ProductR
 		db:           db,
 		productQuery: productQuery,
 	}
+}
+
+func (r *productRepository) GetProductBookById(ctx context.Context, req domain.GetProductBook) (domain.GetDataProductBook, error) {
+	var data domain.GetDataProductBook
+	err := r.db.WithoutTransaction(ctx, func(db *pgxpool.Pool) error {
+		var err error
+		data, err = r.productQuery.GetProductBookById(ctx, db, req)
+		return err
+	})
+	return data, err
 }
 
 func (r *productRepository) CreateBanner(ctx context.Context, banner domain.Banner) error {

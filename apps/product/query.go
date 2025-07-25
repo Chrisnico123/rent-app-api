@@ -31,6 +31,7 @@ type ProductQuery interface {
 	GetProductByID(ctx context.Context, db *pgxpool.Pool, id string) (domain.ProductResponse, error)
 	GetAllProducts(ctx context.Context, db *pgxpool.Pool, filter domain.FilterProduct) ([]domain.ProductResponseList, error)
 	CountAllProducts(ctx context.Context, db *pgxpool.Pool, filter domain.FilterProduct) (int, error)
+	GetProductBookById(ctx context.Context, db *pgxpool.Pool, req domain.GetProductBook) (domain.GetDataProductBook, error)
 
 	// Banner operations
 	CreateBanner(ctx context.Context, tx pgx.Tx, req domain.Banner) error
@@ -47,6 +48,46 @@ type ProductQueryImpl struct {
 
 func NewProductQuery() ProductQuery {
 	return &ProductQueryImpl{}
+}
+
+// GetProductBookById implements ProductQuery.
+func (q *ProductQueryImpl) GetProductBookById(ctx context.Context, db *pgxpool.Pool, req domain.GetProductBook) (domain.GetDataProductBook, error) {
+	query := `
+    WITH encrypted_check AS (
+        SELECT 
+            CASE WHEN EXISTS (
+                SELECT 1 FROM encrypted_images 
+                WHERE user_id = $1
+            ) THEN true ELSE false END AS has_encrypted
+    )
+    SELECT 
+        p.id AS product_id,
+        p.name,
+        p.price,
+        ec.has_encrypted AS is_upload
+    FROM 
+        product p
+    CROSS JOIN encrypted_check ec
+    WHERE 
+        p.id = $2 AND 
+        p.delete_at IS NULL`
+
+	var result domain.GetDataProductBook
+	err := db.QueryRow(ctx, query, req.UserId, req.ProductId).Scan(
+		&result.ProductId,
+		&result.Name,
+		&result.Price,
+		&result.IsUpload,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return domain.GetDataProductBook{}, pgx.ErrNoRows
+		}
+		return domain.GetDataProductBook{}, err
+	}
+
+	return result, nil
 }
 
 // GetBannerById implements ProductQuery.

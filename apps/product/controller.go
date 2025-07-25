@@ -50,6 +50,9 @@ func (controller *categoryController) Route(apps *fiber.App) {
 	app.Delete("/:id",
 		middleware.RoleBasedAuth(constants.RoleSellerString),
 		controller.DeleteProduct)
+	app.Get("/book/:id",
+		middleware.RoleBasedAuth(constants.RoleCustomerString),
+		controller.GetDataBookProduct)
 
 	app.Get("/:id", controller.GetProductByID)
 	app.Get("/", controller.ListProduct)
@@ -67,6 +70,37 @@ func (controller *categoryController) Route(apps *fiber.App) {
 
 	app.Get("/banner/list", controller.ListBanner)
 	app.Get("/banner/:id", controller.GetBannerById)
+}
+
+func (controller *categoryController) GetDataBookProduct(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
+		return web.ErrBadRequest("banner ID cannot be empty")
+	}
+
+	// Get userID from locals with proper type assertion
+	userIDValue := c.Locals("userID")
+	if userIDValue == nil {
+		return web.ErrBadRequest("userID not found in context")
+	}
+
+	userID, ok := userIDValue.(string)
+	if !ok || userID == "" {
+		return web.ErrBadRequest("invalid userID format")
+	}
+
+	resp, err := controller.productService.GetProductBookById(c.Context(), id, userID)
+	if err != nil {
+		return err
+	}
+
+	// Return the successful response
+	return c.JSON(web.WebResponse{
+		Code:    fiber.StatusCreated,
+		Status:  true,
+		Message: "successfully",
+		Data:    resp,
+	})
 }
 
 func (controller *categoryController) CreateBanner(c *fiber.Ctx) error {

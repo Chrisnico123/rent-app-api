@@ -24,3 +24,10 @@ type ProductResponseList struct {
 	CreatedAt string  `json:"created_at"`
 	UpdatedAt string  `json:"updated_at"`
 }
+
+type GetDataProductBook struct {
+	ProductId string  `json:"product_id"`
+	Name      string  `json:"name_product"`
+	Price     float64 `json:"price"`
+	IsUpload  bool    `json:"is_upload"`
+}

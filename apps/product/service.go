@@ -26,7 +26,9 @@ type ProductService interface {
 
 	GetProductByID(ctx context.Context, id string) (web.ProductResponse, error)
 	GetAllProducts(ctx context.Context, filter web.FilterProduct) ([]web.ProductResponseList, int, error)
+	GetProductBookById(ctx context.Context, id, user_id string) (web.GetDataProductBook, error)
 
+	// Banner operations
 	CreateBanner(ctx context.Context, banner BannerRequest) error
 	UpdateBanner(ctx context.Context, id string, banner BannerRequest) error
 	DeleteBanner(ctx context.Context, id string) error
@@ -43,6 +45,24 @@ func NewProductService(productRepo ProductRepository) ProductService {
 	return &productService{
 		productRepository: productRepo,
 	}
+}
+
+// GetProductBookById implements ProductService.
+func (s *productService) GetProductBookById(ctx context.Context, id string, user_id string) (web.GetDataProductBook, error) {
+	data, _ := s.productRepository.GetProductByID(ctx, id)
+	if data.ID == "" {
+		return web.GetDataProductBook{}, web.ErrNotFound("data not found")
+	}
+
+	product, err := s.productRepository.GetProductBookById(ctx, domain.GetProductBook{
+		ProductId: id,
+		UserId:    user_id,
+	})
+	if err != nil {
+		return web.GetDataProductBook{}, err
+	}
+
+	return web.GetDataProductBook(product), nil
 }
 
 func (s *productService) CreateBanner(ctx context.Context, banner BannerRequest) error {

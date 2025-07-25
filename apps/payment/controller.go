@@ -6,6 +6,7 @@ import (
 	"rent-application/internal/middleware"
 	"rent-application/shared/constants"
 	"rent-application/shared/web"
+	"strconv"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -28,6 +29,9 @@ func (c *paymentController) Route(apps *fiber.App) {
 	app := apps.Group("/payment")
 
 	// app.Post("/", c.PaymentTopUp)
+	app.Get("/history",
+		middleware.RoleBasedAuth(constants.RolePublicString),
+		c.GetPaymentHistory)
 	app.Post("/book",
 		middleware.RoleBasedAuth(constants.RoleCustomerString),
 		c.PaymentBooking)
@@ -38,20 +42,55 @@ func (c *paymentController) Route(apps *fiber.App) {
 	app.Post("/callback/xendit", c.XenditPaymentCallback)
 }
 
-// Handler untuk endpoint /create-payment-mandiri
-// func (controller *paymentController) PaymentTopUp(c *fiber.Ctx) error {
-// 	va, err := controller.service.CreatePaymentVA(context.Background())
+func (controller *paymentController) GetPaymentHistory(c *fiber.Ctx) error {
+	var filter web.FIlterPaymentHistory
+	if err := c.QueryParser(&filter); err != nil {
+		return web.ErrValidateBadRequest(err.Error(), filter)
+	}
 
-// 	if err != nil {
-// 		panic(err)
-// 	}
+	// Get userID from context
+	userIDValue := c.Locals("userID")
+	if userIDValue == nil {
+		return web.ErrBadRequest("userID not found in context")
+	}
 
-// 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-// 		"status":  true,
-// 		"message": "Payment created successfully",
-// 		"data":    va,
-// 	})
-// }
+	userID, ok := userIDValue.(string)
+	if !ok || userID == "" {
+		return web.ErrBadRequest("invalid userID format")
+	}
+
+	// Get roleID from context (as int)
+	roleValue := c.Locals("roleID")
+	if roleValue == nil {
+		return web.ErrBadRequest("role user not found")
+	}
+
+	roleID, ok := roleValue.(int)
+	if !ok {
+		return web.ErrBadRequest("invalid role user format")
+	}
+
+	// Convert roleID to string for filter
+	filter.Level = strconv.Itoa(roleID)
+	filter.UserId = userID
+
+	data, count, err := controller.service.GetPaymentListPayment(c.Context(), filter)
+	if err != nil {
+		return err
+	}
+
+	pageInt, _ := strconv.Atoi(filter.Page)
+
+	return c.Status(fiber.StatusOK).JSON(web.WebResponsePagination{
+		Code:      fiber.StatusOK,
+		Status:    true,
+		Page:      pageInt,
+		Count:     len(data),
+		TotalData: count,
+		Message:   "success",
+		Data:      data,
+	})
+}
 
 func (controller *paymentController) GetPaymentBooking(c *fiber.Ctx) error {
 	id := c.Params("order_id")
@@ -70,8 +109,8 @@ func (controller *paymentController) GetPaymentBooking(c *fiber.Ctx) error {
 }
 
 func (controller *paymentController) PaymentBooking(c *fiber.Ctx) error {
-	var req web.BookRequest
-	if err := c.QueryParser(&req); err != nil {
+	var req BookRequest
+	if err := c.BodyParser(&req); err != nil {
 		return web.ErrValidateBadRequest(err.Error(), req)
 	}
 
@@ -88,7 +127,6 @@ func (controller *paymentController) PaymentBooking(c *fiber.Ctx) error {
 
 	resp, err := controller.service.CreateBooking(c.Context(), userID, req)
 	if err != nil {
-		// Handle the error from service layer
 		return err
 	}
 

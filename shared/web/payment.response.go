@@ -11,6 +11,8 @@ type ProductDetail struct {
 type PaymentHistory struct {
 	ID            string        `json:"id"`
 	UserID        string        `json:"user_id"`
+	Username      string        `json:"username"`
+	Email         string        `json:"email"`
 	PaymentId     string        `json:"payment_id"`
 	OrderID       string        `json:"order_id"`
 	ProductDetail ProductDetail `json:"product_detail"`
