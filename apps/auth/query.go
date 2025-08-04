@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"rent-application/domain"
+	"rent-application/shared/helper"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -12,6 +13,7 @@ type AuthQuery interface {
 	CreateUser(c context.Context, tx pgx.Tx, req domain.User) error
 	CreateOTP(c context.Context, tx pgx.Tx, email string, code string) error
 	DeleteOTP(c context.Context, tx pgx.Tx, email string) error
+	CreateWallet(ctx context.Context, tx pgx.Tx, userId string) error
 
 	GetUserByEmail(c context.Context, db *pgxpool.Pool, email string, level int) (domain.User, error)
 	GetOTP(c context.Context, db *pgxpool.Pool, email string) (string, error)
@@ -21,6 +23,23 @@ type AuthQueryImpl struct{}
 
 func NewAuthQuery() AuthQuery {
 	return &AuthQueryImpl{}
+}
+
+// CreateWallet implements PaymentQuery.
+func (q *AuthQueryImpl) CreateWallet(ctx context.Context, tx pgx.Tx, userId string) error {
+	query := `
+		INSERT INTO wallets (
+			id, 
+			user_id
+		) VALUES (
+			$1, $2, $3
+		) ON CONFLICT (user_id) DO NOTHING`
+
+	_, err := tx.Exec(ctx, query,
+		helper.GenerateId(),
+		userId,
+	)
+	return err
 }
 
 func (q *AuthQueryImpl) CreateUser(c context.Context, tx pgx.Tx, req domain.User) error {

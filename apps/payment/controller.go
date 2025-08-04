@@ -28,7 +28,6 @@ func NewPaymentController(service PaymentService) PaymentController {
 func (c *paymentController) Route(apps *fiber.App) {
 	app := apps.Group("/payment")
 
-	// app.Post("/", c.PaymentTopUp)
 	app.Get("/history",
 		middleware.RoleBasedAuth(constants.RolePublicString),
 		c.GetPaymentHistory)
@@ -39,7 +38,97 @@ func (c *paymentController) Route(apps *fiber.App) {
 		middleware.RoleBasedAuth(constants.RoleCustomerString),
 		c.GetPaymentBooking)
 
+	app.Get("/credit/history",
+		middleware.RoleBasedAuth(constants.RolePublicString),
+		c.GetHistoryUser)
+
+	app.Get("/credit",
+		middleware.RoleBasedAuth(constants.RolePublicString),
+		c.GetBalance)
+
+	app.Post("/credit/topup",
+		middleware.RoleBasedAuth(constants.RolePublicString),
+		c.TopUpWallet)
+
 	app.Post("/callback/xendit", c.XenditPaymentCallback)
+}
+
+func (controller *paymentController) TopUpWallet(c *fiber.Ctx) error {
+	var req TopUpRequest
+	err := c.BodyParser(&req)
+	if err != nil {
+		return web.ErrValidateBadRequest(err.Error(), req)
+	}
+
+	// Get userID from locals with proper type assertion
+	userIDValue := c.Locals("userID")
+	if userIDValue == nil {
+		return web.ErrBadRequest("userID not found in context")
+	}
+
+	userID, ok := userIDValue.(string)
+	if !ok || userID == "" {
+		return web.ErrBadRequest("invalid userID format")
+	}
+	data, err := controller.service.CreateTopUP(c.Context(), req, userID)
+	if err != nil {
+		return err
+	}
+
+	return c.Status(fiber.StatusOK).JSON(web.WebResponse{
+		Code:    fiber.StatusOK,
+		Status:  true,
+		Message: "successfully",
+		Data:    data,
+	})
+}
+
+func (controller *paymentController) GetHistoryUser(c *fiber.Ctx) error {
+	// Get userID from locals with proper type assertion
+	userIDValue := c.Locals("userID")
+	if userIDValue == nil {
+		return web.ErrBadRequest("userID not found in context")
+	}
+
+	userID, ok := userIDValue.(string)
+	if !ok || userID == "" {
+		return web.ErrBadRequest("invalid userID format")
+	}
+	data, err := controller.service.GetListTopUP(c.Context(), userID)
+	if err != nil {
+		return err
+	}
+
+	return c.Status(fiber.StatusOK).JSON(web.WebResponse{
+		Code:    fiber.StatusOK,
+		Status:  true,
+		Message: "successfully",
+		Data:    data,
+	})
+}
+
+func (controller *paymentController) GetBalance(c *fiber.Ctx) error {
+	// Get userID from locals with proper type assertion
+	userIDValue := c.Locals("userID")
+	if userIDValue == nil {
+		return web.ErrBadRequest("userID not found in context")
+	}
+
+	userID, ok := userIDValue.(string)
+	if !ok || userID == "" {
+		return web.ErrBadRequest("invalid userID format")
+	}
+	data, err := controller.service.GetBalanceUser(c.Context(), userID)
+	if err != nil {
+		return err
+	}
+
+	return c.Status(fiber.StatusOK).JSON(web.WebResponse{
+		Code:    fiber.StatusOK,
+		Status:  true,
+		Message: "successfully",
+		Data:    data,
+	})
 }
 
 func (controller *paymentController) GetPaymentHistory(c *fiber.Ctx) error {

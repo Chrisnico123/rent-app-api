@@ -42,6 +42,10 @@ func (r *BookRequest) Validate() error {
 		return errors.New("end_date must be in YYYY-MM-DD format")
 	}
 
+	if startDate == endDate {
+		return errors.New("end_date cannot be same start_date")
+	}
+
 	// Validate date range
 	if endDate.Before(startDate) {
 		return errors.New("end_date cannot be before start_date")
@@ -50,6 +54,25 @@ func (r *BookRequest) Validate() error {
 	// Validate Description
 	if utf8.RuneCountInString(r.Desc) > 500 {
 		return errors.New("description is too long (max 500 characters)")
+	}
+
+	// Validate TypeVA
+	if r.TypeVA < 1 || r.TypeVA > 3 {
+		return errors.New("type must be between 1 and 3")
+	}
+
+	return nil
+}
+
+type TopUpRequest struct {
+	Amount float64 `json:"amount"`
+	TypeVA uint8   `json:"type"`
+}
+
+func (r *TopUpRequest) Validate() error {
+	// Check if amount is positive
+	if r.Amount <= 0 {
+		return errors.New("amount must be greater than 0")
 	}
 
 	// Validate TypeVA

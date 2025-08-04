@@ -37,18 +37,21 @@ type PaymentHistory struct {
 }
 
 type PaymentResponse struct {
-	ID        string
-	Username  string
-	Email     string
-	UserID    string
-	PaymentId string
-	OrderID   string
-	ProductId string
-	VAID      string
-	Status    string
-	CreatedAt string
-	UpdatedAt string
-	ExpiredAt string
+	ID          string
+	Username    string
+	Email       string
+	UserID      string
+	PaymentId   string
+	OrderID     string
+	ProductId   string
+	StartDate   string
+	EndDate     string
+	BookingDays uint16
+	VAID        string
+	Status      string
+	CreatedAt   string
+	UpdatedAt   string
+	ExpiredAt   string
 }
 
 type PaymentHistoryResponse struct {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"rent-application/apps/auth"
 	"rent-application/apps/product"
 	"rent-application/domain"
@@ -21,6 +22,10 @@ type PaymentService interface {
 
 	CreateBooking(ctx context.Context, userId string, req BookRequest) (web.PaymentHistory, error)
 	AfterPaymentHandler(ctx context.Context, request web.XenditVACallback) error
+
+	CreateTopUP(ctx context.Context, request TopUpRequest, userId string) (web.PaymentTopUpByOrderIdResponse, error)
+	GetListTopUP(ctx context.Context, userId string) ([]web.PaymentTopUpResponse, error)
+	GetBalanceUser(ctx context.Context, userId string) (web.BalanceResponse, error)
 }
 
 type paymentService struct {
@@ -35,6 +40,116 @@ func NewPaymentService(paymentRepository PaymentRepository, productRepository pr
 		productRepository: productRepository,
 		authRepository:    authRepository,
 	}
+}
+
+// GetBalanceUser implements PaymentService.
+func (s *paymentService) GetBalanceUser(ctx context.Context, userId string) (web.BalanceResponse, error) {
+	data, err := s.paymentRepository.GetBalance(ctx, userId)
+	if err != nil {
+		return web.BalanceResponse{}, web.ErrInternalServer(err.Error())
+	}
+
+	return web.BalanceResponse{
+		Balance: data,
+	}, nil
+}
+
+// CreateTopUP implements PaymentService.
+func (s *paymentService) CreateTopUP(ctx context.Context, request TopUpRequest, userId string) (web.PaymentTopUpByOrderIdResponse, error) {
+	err := request.Validate()
+	if err != nil {
+		return web.PaymentTopUpByOrderIdResponse{}, web.ErrBadRequest(err.Error())
+	}
+
+	// Determine bank code based on TypeVA
+	bankCode, err := helper.GetBankCode(request.TypeVA)
+	if err != nil {
+		return web.PaymentTopUpByOrderIdResponse{}, err
+	}
+
+	paymentType := helper.GetPaymentType(request.TypeVA)
+
+	req := xendit.PaymentRequest{
+		Amount:      request.Amount,
+		BankCode:    bankCode,
+		PaymentDesc: "TOPUP",
+		OrderId:     fmt.Sprintf("Order-%d", time.Now().Unix()),
+		ExpiredAt:   time.Now().Add(1 * time.Hour).UTC(),
+	}
+
+	resp, err := xendit.CreateTopUpVA(req)
+	if err != nil {
+		return web.PaymentTopUpByOrderIdResponse{}, fmt.Errorf("failed to create payment: %w", err)
+	}
+
+	topUpReq := domain.TopUpRequest{
+		Id:        helper.GenerateId(),
+		UserId:    userId,
+		Amount:    req.Amount,
+		Type:      paymentType,
+		PaymentId: resp.PaymentMethod.Id,
+		OrderID:   *resp.PaymentMethod.ReferenceId,
+		VAID:      *resp.PaymentMethod.VirtualAccount.Get().ChannelProperties.VirtualAccountNumber,
+		ExpiredAt: &req.ExpiredAt,
+	}
+
+	err = s.paymentRepository.CreateTopUp(ctx, topUpReq)
+	if err != nil {
+		return web.PaymentTopUpByOrderIdResponse{}, web.ErrInternalServer(err.Error())
+	}
+
+	data, err := s.paymentRepository.GetTopUpHistoryByOrderId(ctx, topUpReq.OrderID)
+	if err != nil {
+		return web.PaymentTopUpByOrderIdResponse{}, web.ErrInternalServer(err.Error())
+	}
+
+	result := web.PaymentTopUpByOrderIdResponse{
+		Id:            data.Id,
+		Amount:        data.Amount,
+		Status:        data.Status,
+		PaymentMethod: data.Type,
+		PaymentId:     data.PaymentId,
+		OrderId:       data.OrderID,
+		VAID:          data.VAID,
+		CreatedAt:     data.CreatedAt,
+		UpdatedAt:     data.UpdatedAt,
+		ExpiredAt:     data.ExpiredAt,
+		Username:      data.UserName,
+		Email:         data.UserEmail,
+	}
+
+	return result, nil
+}
+
+func (s *paymentService) GetListTopUP(ctx context.Context, userId string) ([]web.PaymentTopUpResponse, error) {
+	// Get data from repository
+	data, err := s.paymentRepository.GetTopUpHistory(ctx, userId)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return []web.PaymentTopUpResponse{}, nil
+		}
+		return nil, web.ErrInternalServer(err.Error())
+	}
+
+	// Map repository data to response struct
+	responses := make([]web.PaymentTopUpResponse, 0, len(data))
+	for _, payment := range data {
+		response := web.PaymentTopUpResponse{
+			Id:            payment.Id,
+			Amount:        payment.Amount,
+			Status:        payment.Status,
+			PaymentMethod: payment.Type,
+			PaymentId:     payment.PaymentId,
+			VAID:          payment.VAID,
+			OrderId:       payment.OrderID,
+			CreatedAt:     payment.CreatedAt,
+			UpdatedAt:     payment.UpdatedAt,
+			ExpiredAt:     payment.ExpiredAt,
+		}
+		responses = append(responses, response)
+	}
+
+	return responses, nil
 }
 
 // GetPaymentListPayment implements PaymentService.
@@ -88,17 +203,21 @@ func (s *paymentService) GetPaymentByOrderId(ctx context.Context, orderId string
 
 	// Convert to response format
 	response := web.PaymentHistory{
-		ID:        paymentHistory.ID,
-		UserID:    paymentHistory.UserID,
-		Username:  paymentHistory.Username,
-		Email:     paymentHistory.Email,
-		PaymentId: paymentHistory.PaymentId,
-		OrderID:   paymentHistory.OrderID,
-		VAID:      paymentHistory.VAID,
-		Status:    paymentHistory.Status,
-		CreatedAt: paymentHistory.CreatedAt,
-		UpdatedAt: paymentHistory.UpdatedAt,
-		ExpiredAt: paymentHistory.ExpiredAt,
+		ID:           paymentHistory.ID,
+		UserID:       paymentHistory.UserID,
+		Username:     paymentHistory.Username,
+		Email:        paymentHistory.Email,
+		PaymentId:    paymentHistory.PaymentId,
+		StartDate:    paymentHistory.StartDate,
+		EndDate:      paymentHistory.EndDate,
+		BookingDays:  int8(paymentHistory.BookingDays),
+		TotalPayment: product.Price * float64(paymentHistory.BookingDays),
+		OrderID:      paymentHistory.OrderID,
+		VAID:         paymentHistory.VAID,
+		Status:       paymentHistory.Status,
+		CreatedAt:    paymentHistory.CreatedAt,
+		UpdatedAt:    paymentHistory.UpdatedAt,
+		ExpiredAt:    paymentHistory.ExpiredAt,
 		ProductDetail: web.ProductDetail{
 			Name:         product.Name,
 			Price:        product.Price,
@@ -119,38 +238,62 @@ func (s *paymentService) AfterPaymentHandler(ctx context.Context, callbackPayloa
 	log.Printf("Reference ID: %s", callbackPayload.Data.ReferenceID)
 	log.Printf("Status: %s", callbackPayload.Data.Status)
 
-	if callbackPayload.Data.VirtualAccount != nil {
-		log.Printf("Virtual Account Details:")
-		log.Printf("- Amount: %.2f", callbackPayload.Data.VirtualAccount.Amount)
-		log.Printf("- Channel Code: %s", callbackPayload.Data.VirtualAccount.ChannelCode)
-		log.Printf("- VA Number: %s", callbackPayload.Data.VirtualAccount.ChannelProperties.VirtualAccountNumber)
-	}
-
 	// Process different events
 	switch callbackPayload.Event {
 	case "payment_method.expired":
-		err := s.paymentRepository.UpdatePaymentStatus(ctx, callbackPayload.Data.ReferenceID, "EXPIRED")
-		if err != nil {
-			log.Println(err)
+		if callbackPayload.Data.VirtualAccount.ChannelProperties.CustomerName == "BOOK" {
+			err := s.paymentRepository.UpdatePaymentStatus(ctx, callbackPayload.Data.ReferenceID, "EXPIRED")
+			if err != nil {
+				log.Println(err)
+			}
+		} else {
+			err := s.paymentRepository.UpdateStatus(ctx, callbackPayload.Data.ReferenceID, "EXPIRED")
+			if err != nil {
+				log.Println(err)
+			}
 		}
 		log.Printf("Payment expired: %s", callbackPayload.Data.ReferenceID)
 	case "payment_method.activated":
-		err := s.paymentRepository.UpdatePaymentStatus(ctx, callbackPayload.Data.ReferenceID, "ACTIVATED")
-		if err != nil {
-			log.Println(err)
+		if callbackPayload.Data.VirtualAccount.ChannelProperties.CustomerName == "BOOK" {
+			err := s.paymentRepository.UpdatePaymentStatus(ctx, callbackPayload.Data.ReferenceID, "ACTIVATED")
+			if err != nil {
+				log.Println(err)
+			}
+		} else {
+			err := s.paymentRepository.UpdateStatus(ctx, callbackPayload.Data.ReferenceID, "ACTIVATED")
+			if err != nil {
+				log.Println(err)
+			}
 		}
+
 		log.Printf("Payment activated: %s", callbackPayload.Data.ReferenceID)
 	case "payment_method.failed":
-		err := s.paymentRepository.UpdatePaymentStatus(ctx, callbackPayload.Data.ReferenceID, "FAILED")
-		if err != nil {
-			log.Println(err)
+		if callbackPayload.Data.VirtualAccount.ChannelProperties.CustomerName == "BOOK" {
+			err := s.paymentRepository.UpdatePaymentStatus(ctx, callbackPayload.Data.ReferenceID, "FAILED")
+			if err != nil {
+				log.Println(err)
+			}
+		} else {
+			err := s.paymentRepository.UpdateStatus(ctx, callbackPayload.Data.ReferenceID, "FAILED")
+			if err != nil {
+				log.Println(err)
+			}
 		}
 		log.Printf("Payment failed: %s", callbackPayload.Data.ReferenceID)
 	case "payment.succeeded":
-		err := s.paymentRepository.AfterPaymentHandler(ctx, callbackPayload.Data.PaymentMethod.ReferenceID)
-		if err != nil {
-			return err
+		if callbackPayload.Data.PaymentMethod.VirtualAccount.ChannelProperties.CustomerName == "BOOK" {
+			err := s.paymentRepository.AfterPaymentHandler(ctx, callbackPayload.Data.PaymentMethod.ReferenceID)
+			if err != nil {
+				return err
+			}
+
+		} else {
+			err := s.paymentRepository.AfterPaymentTopUpHandler(ctx, callbackPayload.Data.PaymentMethod.ReferenceID)
+			if err != nil {
+				log.Println(err)
+			}
 		}
+
 		log.Printf("Payment succeeded: %s", callbackPayload.Data.PaymentMethod.ReferenceID)
 	default:
 		log.Printf("Unhandled event type: %s", callbackPayload.Event)
@@ -194,6 +337,29 @@ func (s *paymentService) CreateBooking(ctx context.Context, userId string, req B
 		}
 	}
 
+	startDate, err := time.Parse("2006-01-02", req.StartdDate)
+	if err != nil {
+		return web.PaymentHistory{}, web.ErrBadRequest("invalid start date format, expected YYYY-MM-DD")
+	}
+
+	endDate, err := time.Parse("2006-01-02", req.EndDate)
+	if err != nil {
+		return web.PaymentHistory{}, web.ErrBadRequest("invalid end date format, expected YYYY-MM-DD")
+	}
+
+	// Validate date range
+	if endDate.Before(startDate) {
+		return web.PaymentHistory{}, web.ErrBadRequest("end date cannot be before start date")
+	}
+
+	// Calculate duration and total price
+	duration := endDate.Sub(startDate)
+	days := int(math.Ceil(duration.Hours() / 24))
+	if days < 1 {
+		days = 1 // Minimum 1 day
+	}
+	totalPrice := product.Price * float64(days)
+
 	// Determine bank code based on TypeVA
 	bankCode, err := helper.GetBankCode(req.TypeVA)
 	if err != nil {
@@ -203,9 +369,9 @@ func (s *paymentService) CreateBooking(ctx context.Context, userId string, req B
 	paymentType := helper.GetPaymentType(req.TypeVA)
 
 	request := xendit.PaymentRequest{
-		Amount:      product.Price,
+		Amount:      totalPrice,
 		BankCode:    bankCode,
-		PaymentDesc: fmt.Sprintf("Payment for product %s", product.Name),
+		PaymentDesc: "BOOK",
 		OrderId:     fmt.Sprintf("Order-%d", time.Now().Unix()),
 		ExpiredAt:   time.Now().Add(1 * time.Hour).UTC(),
 	}
@@ -235,7 +401,7 @@ func (s *paymentService) CreateBooking(ctx context.Context, userId string, req B
 		OrderID:   *resp.PaymentMethod.ReferenceId,
 		ProductID: &req.ProductId,
 		Type:      paymentType,
-		Price:     product.Price,
+		Price:     totalPrice,
 	}
 
 	err = s.paymentRepository.CreateOrder(ctx, orderReq, paymentReq, reqImg, reqIvs)

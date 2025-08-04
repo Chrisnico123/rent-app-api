@@ -24,11 +24,11 @@ func GetBankCode(typeVA uint8) (string, error) {
 func GetPaymentType(typeVA uint8) string {
 	switch typeVA {
 	case constants.PaymentTypeMandiri:
-		return "BOOK-MANDIRI"
+		return "VA-MANDIRI"
 	case constants.PaymentTypeBCA:
-		return "BOOK-BCA"
+		return "VA-BCA"
 	case constants.PaymentTypeBRI:
-		return "BOOK-BRI"
+		return "VA-BRI"
 	default:
 		return "BOOK-UNKNOWN"
 	}

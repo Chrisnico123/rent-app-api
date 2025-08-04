@@ -32,12 +32,223 @@ type PaymentQuery interface {
 	CreateEncryptedImg(ctx context.Context, tx pgx.Tx, req domain.EncryptedImg) error
 	CreateEncryptedIv(ctx context.Context, tx pgx.Tx, req domain.EncryptedIv) error
 	GetDataEncryImg(ctx context.Context, db *pgxpool.Pool, userId string) (domain.DataEncryRes, error)
+
+	// Wallet operations
+	UpdateBalanceWallet(ctx context.Context, tx pgx.Tx, userId string, amount float64) error
+	CreateTopUpTransaction(ctx context.Context, tx pgx.Tx, request domain.TopUpRequest) error
+	UpdateStatusTopUp(ctx context.Context, tx pgx.Tx, referenceId, status string) error
+
+	GetWalletBalance(ctx context.Context, db *pgxpool.Pool, userId string) (float64, error)
+	GetTopUpHistory(ctx context.Context, db *pgxpool.Pool, userId string) ([]domain.TopUpResponse, error)
+	GetTopUpByOrderID(ctx context.Context, tx pgx.Tx, orderID string) (domain.TopUpByOrderIdResponse, error)
 }
 
 type PaymentQueryImpl struct{}
 
 func NewPaymentQuery() PaymentQuery {
 	return &PaymentQueryImpl{}
+}
+
+func (q *PaymentQueryImpl) GetTopUpByOrderID(ctx context.Context, tx pgx.Tx, orderID string) (domain.TopUpByOrderIdResponse, error) {
+	query := `
+        SELECT 
+            tt.id,
+            tt.amount,
+            tt.status,
+            tt.payment_method,
+            tt.pm_id,
+            tt.order_id,
+            tt.va_id,
+            tt.created_at,
+            tt.updated_at,
+            tt.expired_at,
+			u.id AS user_id,
+            u.username AS user_name,
+            u.email AS user_email
+        FROM 
+            topup_transactions tt
+        JOIN 
+            users u ON tt.user_id = u.id
+        WHERE 
+            tt.order_id = $1
+        LIMIT 1`
+
+	var response domain.TopUpByOrderIdResponse
+	var createdAt, updatedAt time.Time
+	var expiredAt *time.Time
+	var paymentMethod *string
+
+	err := tx.QueryRow(ctx, query, orderID).Scan(
+		&response.Id,
+		&response.Amount,
+		&response.Status,
+		&paymentMethod,
+		&response.PaymentId,
+		&response.OrderID,
+		&response.VAID,
+		&createdAt,
+		&updatedAt,
+		&expiredAt,
+		&response.UserId,
+		&response.UserName,
+		&response.UserEmail,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return domain.TopUpByOrderIdResponse{}, pgx.ErrNoRows
+		}
+		return domain.TopUpByOrderIdResponse{}, fmt.Errorf("failed to get payment by order ID: %w", err)
+	}
+
+	// Map fields to response
+	if paymentMethod != nil {
+		response.Type = *paymentMethod
+	}
+	response.CreatedAt = helper.ConvertToJakarta(createdAt)
+	response.UpdatedAt = helper.ConvertToJakarta(updatedAt)
+	response.ExpiredAt = helper.ConvertToJakarta(*expiredAt)
+
+	return response, nil
+}
+
+func (q *PaymentQueryImpl) GetTopUpHistory(ctx context.Context, db *pgxpool.Pool, userId string) ([]domain.TopUpResponse, error) {
+	query := `
+        SELECT 
+            id,
+            amount,
+            status,
+            payment_method,
+            pm_id,
+            order_id,
+            va_id,
+            created_at,
+            updated_at,
+            expired_at
+        FROM 
+            topup_transactions
+        WHERE 
+            user_id = $1
+        ORDER BY created_at DESC`
+
+	rows, err := db.Query(ctx, query, userId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query top-up history: %w", err)
+	}
+	defer rows.Close()
+
+	var histories []domain.TopUpResponse
+	for rows.Next() {
+		var history domain.TopUpResponse
+		var createdAt, updatedAt time.Time
+		var expiredAt *time.Time
+		var paymentMethod *string
+
+		err := rows.Scan(
+			&history.Id,
+			&history.Amount,
+			&history.Status,
+			&paymentMethod,
+			&history.PaymentId,
+			&history.OrderID,
+			&history.VAID,
+			&createdAt,
+			&updatedAt,
+			&expiredAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan top-up history: %w", err)
+		}
+
+		// Map fields to response
+		if paymentMethod != nil {
+			history.Type = *paymentMethod
+		}
+		history.CreatedAt = helper.ConvertToJakarta(createdAt)
+		history.UpdatedAt = helper.ConvertToJakarta(updatedAt)
+		history.ExpiredAt = helper.ConvertToJakarta(*expiredAt)
+
+		histories = append(histories, history)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error after scanning rows: %w", err)
+	}
+
+	return histories, nil
+}
+
+func (q *PaymentQueryImpl) GetWalletBalance(ctx context.Context, db *pgxpool.Pool, userId string) (float64, error) {
+	query := `
+		SELECT balance 
+		FROM wallets 
+		WHERE user_id = $1`
+
+	var balance float64
+	err := db.QueryRow(ctx, query, userId).Scan(&balance)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return 0, pgx.ErrNoRows
+		}
+		return 0, fmt.Errorf("failed to get wallet balance: %w", err)
+	}
+
+	return balance, nil
+}
+
+// CreateTopUpTransaction implements PaymentQuery.
+func (q *PaymentQueryImpl) CreateTopUpTransaction(ctx context.Context, tx pgx.Tx, request domain.TopUpRequest) error {
+	query := `
+        INSERT INTO topup_transactions (
+            id,
+            user_id,
+            amount,
+            payment_method,
+            order_id,
+            va_id,
+            pm_id,
+            expired_at
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8
+        )`
+
+	_, err := tx.Exec(ctx, query,
+		request.Id,
+		request.UserId,
+		request.Amount,
+		request.Type,
+		request.OrderID,
+		request.VAID,
+		request.PaymentId,
+		request.ExpiredAt,
+	)
+	return err
+}
+
+func (q *PaymentQueryImpl) UpdateBalanceWallet(ctx context.Context, tx pgx.Tx, userId string, amount float64) error {
+	query := `
+		UPDATE wallets 
+		SET 
+			balance = balance + $1,
+			last_updated = NOW()
+		WHERE 
+			user_id = $2`
+
+	_, err := tx.Exec(ctx, query, amount, userId)
+	return err
+}
+
+func (q *PaymentQueryImpl) UpdateStatusTopUp(ctx context.Context, tx pgx.Tx, referenceId string, status string) error {
+	query := `
+		UPDATE topup_transactions 
+		SET 
+			status = $1,
+			updated_at = NOW()
+		WHERE 
+			order_id = $2`
+
+	_, err := tx.Exec(ctx, query, status, referenceId)
+	return err
 }
 
 // COuntPaymentHistory implements PaymentQuery.
@@ -423,8 +634,8 @@ func (q *PaymentQueryImpl) GetPaymentByOrderID(ctx context.Context, db *pgxpool.
         SELECT 
             ph.id, 
             ph.user_id, 
-			u.username,
-			u.email,
+            u.username,
+            u.email,
             ph.pm_id as payment_id,
             ph.order_id, 
             ph.va_id,
@@ -432,13 +643,16 @@ func (q *PaymentQueryImpl) GetPaymentByOrderID(ctx context.Context, db *pgxpool.
             ph.created_at,
             ph.updated_at,
             ph.expired_at,
-            p.id as product_id
+            p.id as product_id,
+            ou.start_date,
+            ou.end_date,
+            (ou.end_date::date - ou.start_date::date) AS booking_days
         FROM 
             payment_history ph
         JOIN 
             order_user ou ON ph.order_id = ou.order_id
-		LEFT JOIN 
-			users u ON ph.user_id = u.id
+        LEFT JOIN 
+            users u ON ph.user_id = u.id
         LEFT JOIN 
             product p ON ou.product_id = p.id
         WHERE 
@@ -460,6 +674,9 @@ func (q *PaymentQueryImpl) GetPaymentByOrderID(ctx context.Context, db *pgxpool.
 		&updatedAt,
 		&expiredAt,
 		&payment.ProductId,
+		&payment.StartDate,
+		&payment.EndDate,
+		&payment.BookingDays,
 	)
 
 	if err != nil {

@@ -14,6 +14,7 @@ type PaymentRepository interface {
 	CreateOrder(ctx context.Context, order domain.OrderUser, payment domain.PaymentHistory, encryImg domain.EncryptedImg, encryIv domain.EncryptedIv) error
 	AfterPaymentHandler(ctx context.Context, orderId string) error
 
+	// Book
 	CreatePayment(ctx context.Context, payment domain.PaymentHistory) error
 	GetPaymentByID(ctx context.Context, id string) (domain.PaymentHistory, error)
 	GetOrdersByUserID(ctx context.Context, userID string, filter domain.FilterSearchPagination) ([]domain.OrderUser, int, error)
@@ -21,6 +22,15 @@ type PaymentRepository interface {
 	GetPaymentsByOrderID(ctx context.Context, orderID string) (domain.PaymentHistory, error)
 	GetListPaymentHistory(ctx context.Context, filter domain.FilterPaymentHistory) ([]domain.PaymentHistoryResponse, int, error)
 	UpdatePaymentStatus(ctx context.Context, paymentID string, status string) error
+
+	// TopUp
+	CreateTopUp(ctx context.Context, request domain.TopUpRequest) error
+	UpdateStatus(ctx context.Context, referenceId, status string) error
+	AfterPaymentTopUpHandler(ctx context.Context, orderId string) error
+
+	GetBalance(ctx context.Context, userId string) (float64, error)
+	GetTopUpHistory(ctx context.Context, userID string) ([]domain.TopUpResponse, error)
+	GetTopUpHistoryByOrderId(ctx context.Context, orderId string) (domain.TopUpByOrderIdResponse, error)
 
 	// Data Crucial
 	GetDataEncryImg(ctx context.Context, userId string) (domain.DataEncryRes, error)
@@ -38,6 +48,76 @@ func NewPaymentRepository(db database.Store, paymentQuery PaymentQuery, productQ
 		paymentQuery: paymentQuery,
 		productQuery: productQuery,
 	}
+}
+
+// GetTopUpHistoryByOrderId implements PaymentRepository.
+func (r *paymentRepository) GetTopUpHistoryByOrderId(ctx context.Context, orderId string) (domain.TopUpByOrderIdResponse, error) {
+	var result domain.TopUpByOrderIdResponse
+	var err error
+	err = r.db.WithTransaction(ctx, func(tx pgx.Tx) error {
+		result, err = r.paymentQuery.GetTopUpByOrderID(ctx, tx, orderId)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	return result, nil
+}
+
+func (r *paymentRepository) CreateTopUp(ctx context.Context, request domain.TopUpRequest) error {
+	return r.db.WithTransaction(ctx, func(tx pgx.Tx) error {
+		return r.paymentQuery.CreateTopUpTransaction(ctx, tx, request)
+	})
+}
+
+func (r *paymentRepository) UpdateStatus(ctx context.Context, referenceId, status string) error {
+	return r.db.WithTransaction(ctx, func(tx pgx.Tx) error {
+		return r.paymentQuery.UpdateStatusTopUp(ctx, tx, referenceId, status)
+	})
+}
+
+func (r *paymentRepository) AfterPaymentTopUpHandler(ctx context.Context, orderId string) error {
+	var data domain.TopUpByOrderIdResponse
+	var err error
+	return r.db.WithTransaction(ctx, func(tx pgx.Tx) error {
+		if data, err = r.paymentQuery.GetTopUpByOrderID(ctx, tx, orderId); err != nil {
+			return err
+		}
+
+		if err := r.paymentQuery.UpdateStatusTopUp(ctx, tx, orderId, "SUCCEEDED"); err != nil {
+			return err
+		}
+
+		if err := r.paymentQuery.UpdateBalanceWallet(ctx, tx, data.UserId, data.Amount); err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
+func (r *paymentRepository) GetBalance(ctx context.Context, userId string) (float64, error) {
+	var result float64
+	err := r.db.WithoutTransaction(ctx, func(db *pgxpool.Pool) error {
+		var err error
+		result, err = r.paymentQuery.GetWalletBalance(ctx, db, userId)
+		return err
+	})
+
+	return result, err
+}
+
+func (r *paymentRepository) GetTopUpHistory(ctx context.Context, userId string) ([]domain.TopUpResponse, error) {
+	var result []domain.TopUpResponse
+	err := r.db.WithoutTransaction(ctx, func(db *pgxpool.Pool) error {
+		var err error
+		result, err = r.paymentQuery.GetTopUpHistory(ctx, db, userId)
+		return err
+	})
+
+	return result, err
 }
 
 // GetListPaymentHistory implements PaymentRepository.

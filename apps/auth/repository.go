@@ -30,7 +30,16 @@ func NewAuthRepository(db database.Store, authQuery AuthQuery) AuthRepository {
 
 func (r *authRepository) CreateUser(c context.Context, user domain.User) error {
 	return r.db.WithTransaction(c, func(tx pgx.Tx) error {
-		return r.authQuery.CreateUser(c, tx, user)
+		err := r.authQuery.CreateUser(c, tx, user)
+		if err != nil {
+			return err
+		}
+
+		err = r.authQuery.CreateWallet(c, tx, user.ID)
+		if err != nil {
+		}
+
+		return nil
 	})
 }
 
