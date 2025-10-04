@@ -32,13 +32,14 @@ func (q *AuthQueryImpl) CreateWallet(ctx context.Context, tx pgx.Tx, userId stri
 			id, 
 			user_id
 		) VALUES (
-			$1, $2, $3
-		) ON CONFLICT (user_id) DO NOTHING`
+			$1, $2
+		)`
 
 	_, err := tx.Exec(ctx, query,
 		helper.GenerateId(),
 		userId,
 	)
+
 	return err
 }
 
