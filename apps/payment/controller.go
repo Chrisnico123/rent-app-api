@@ -192,7 +192,7 @@ func (controller *paymentController) GetPaymentBooking(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(web.WebResponse{
 		Code:    fiber.StatusOK,
 		Status:  true,
-		Message: "product updated successfully",
+		Message: "successfully get payment booking",
 		Data:    data,
 	})
 }

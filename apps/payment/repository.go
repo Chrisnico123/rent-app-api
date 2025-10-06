@@ -12,6 +12,7 @@ import (
 
 type PaymentRepository interface {
 	CreateOrder(ctx context.Context, order domain.OrderUser, payment domain.PaymentHistory, encryImg domain.EncryptedImg, encryIv domain.EncryptedIv) error
+	CreateOrderBalance(ctx context.Context, order domain.OrderUser, payment domain.PaymentHistory, encryImg domain.EncryptedImg, encryIv domain.EncryptedIv, balance float64) error
 	AfterPaymentHandler(ctx context.Context, orderId string) error
 
 	// Book
@@ -48,6 +49,39 @@ func NewPaymentRepository(db database.Store, paymentQuery PaymentQuery, productQ
 		paymentQuery: paymentQuery,
 		productQuery: productQuery,
 	}
+}
+
+// CreateOrderBalance implements PaymentRepository.
+func (r *paymentRepository) CreateOrderBalance(ctx context.Context, order domain.OrderUser, payment domain.PaymentHistory, encryImg domain.EncryptedImg, encryIv domain.EncryptedIv, balance float64) error {
+	// Create Order Balance
+	// Decrease Balance Waller User
+	var err error
+	err = r.db.WithTransaction(ctx, func(tx pgx.Tx) error {
+		if err = r.paymentQuery.CreatePayment(ctx, tx, payment); err != nil {
+			return err
+		}
+
+		if err = r.paymentQuery.CreateBooking(ctx, tx, order); err != nil {
+			return err
+		}
+
+		if encryImg.Id != "" {
+			if err = r.paymentQuery.CreateEncryptedImg(ctx, tx, encryImg); err != nil {
+				return err
+			}
+
+			if err = r.paymentQuery.CreateEncryptedIv(ctx, tx, encryIv); err != nil {
+				return err
+			}
+		}
+
+		if err = r.paymentQuery.UpdateBalanceWallet(ctx, tx, order.UserID, -balance); err != nil {
+			return err
+		}
+
+		return nil
+	})
+	return err
 }
 
 // GetTopUpHistoryByOrderId implements PaymentRepository.

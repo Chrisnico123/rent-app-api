@@ -210,6 +210,7 @@ func (s *paymentService) GetPaymentByOrderId(ctx context.Context, orderId string
 		PaymentId:    paymentHistory.PaymentId,
 		StartDate:    paymentHistory.StartDate,
 		EndDate:      paymentHistory.EndDate,
+		Method:       paymentHistory.Method,
 		BookingDays:  int8(paymentHistory.BookingDays),
 		TotalPayment: product.Price * float64(paymentHistory.BookingDays),
 		OrderID:      paymentHistory.OrderID,
@@ -360,53 +361,100 @@ func (s *paymentService) CreateBooking(ctx context.Context, userId string, req B
 	}
 	totalPrice := product.Price * float64(days)
 
-	// Determine bank code based on TypeVA
-	bankCode, err := helper.GetBankCode(req.TypeVA)
-	if err != nil {
-		return web.PaymentHistory{}, err
-	}
+	var orderReq domain.OrderUser
 
-	paymentType := helper.GetPaymentType(req.TypeVA)
+	// Check If using balance
+	if req.TypeVA == 4 {
+		paymentReq := domain.PaymentHistory{
+			ID:        helper.GenerateId(),
+			UserID:    userId,
+			PaymentId: "",
+			OrderID:   helper.GenerateOrderId(),
+			VAID:      "",
+			Status:    "SUCCEEDED",
+			ExpiredAt: nil,
+		}
 
-	request := xendit.PaymentRequest{
-		Amount:      totalPrice,
-		BankCode:    bankCode,
-		PaymentDesc: "BOOK",
-		OrderId:     fmt.Sprintf("Order-%d", time.Now().Unix()),
-		ExpiredAt:   time.Now().Add(1 * time.Hour).UTC(),
-	}
+		orderReq = domain.OrderUser{
+			ID:        helper.GenerateId(),
+			UserID:    userId,
+			PaymentId: "",
+			StartDate: req.StartdDate,
+			EndDate:   req.EndDate,
+			Desc:      req.Desc,
+			OrderID:   paymentReq.OrderID,
+			ProductID: &req.ProductId,
+			Type:      "Balance",
+			Price:     totalPrice,
+		}
 
-	resp, err := xendit.CreatePaymentVA(request)
-	if err != nil {
-		return web.PaymentHistory{}, fmt.Errorf("failed to create payment: %w", err)
-	}
+		balance, err := s.paymentRepository.GetBalance(ctx, userId)
+		if err != nil {
+			return web.PaymentHistory{}, web.ErrInternalServer(err.Error())
+		}
 
-	paymentReq := domain.PaymentHistory{
-		ID:        helper.GenerateId(),
-		UserID:    userId,
-		PaymentId: resp.PaymentMethod.Id,
-		OrderID:   *resp.PaymentMethod.ReferenceId,
-		VAID:      *resp.PaymentMethod.VirtualAccount.Get().ChannelProperties.VirtualAccountNumber,
-		Status:    "PENDING",
-		ExpiredAt: &request.ExpiredAt,
-	}
+		if balance < totalPrice {
+			return web.PaymentHistory{}, web.ErrBadRequest("balance not enough, please top up your balance")
+		}
 
-	orderReq := domain.OrderUser{
-		ID:        helper.GenerateId(),
-		UserID:    userId,
-		PaymentId: resp.PaymentMethod.Id,
-		StartDate: req.StartdDate,
-		EndDate:   req.EndDate,
-		Desc:      req.Desc,
-		OrderID:   *resp.PaymentMethod.ReferenceId,
-		ProductID: &req.ProductId,
-		Type:      paymentType,
-		Price:     totalPrice,
-	}
+		err = s.paymentRepository.CreateOrderBalance(ctx, orderReq, paymentReq, reqImg, reqIvs, totalPrice)
+		if err != nil {
+			return web.PaymentHistory{}, web.ErrInternalServer(err.Error())
+		}
 
-	err = s.paymentRepository.CreateOrder(ctx, orderReq, paymentReq, reqImg, reqIvs)
-	if err != nil {
-		return web.PaymentHistory{}, web.ErrInternalServer(err.Error())
+		err = s.paymentRepository.AfterPaymentHandler(ctx, orderReq.OrderID)
+		if err != nil {
+			return web.PaymentHistory{}, web.ErrInternalServer(err.Error())
+		}
+	} else {
+		// Determine bank code based on TypeVA
+		bankCode, err := helper.GetBankCode(req.TypeVA)
+		if err != nil {
+			return web.PaymentHistory{}, err
+		}
+
+		paymentType := helper.GetPaymentType(req.TypeVA)
+
+		request := xendit.PaymentRequest{
+			Amount:      totalPrice,
+			BankCode:    bankCode,
+			PaymentDesc: "BOOK",
+			OrderId:     fmt.Sprintf("Order-%d", time.Now().Unix()),
+			ExpiredAt:   time.Now().Add(1 * time.Hour).UTC(),
+		}
+
+		resp, err := xendit.CreatePaymentVA(request)
+		if err != nil {
+			return web.PaymentHistory{}, fmt.Errorf("failed to create payment: %w", err)
+		}
+
+		paymentReq := domain.PaymentHistory{
+			ID:        helper.GenerateId(),
+			UserID:    userId,
+			PaymentId: resp.PaymentMethod.Id,
+			OrderID:   *resp.PaymentMethod.ReferenceId,
+			VAID:      *resp.PaymentMethod.VirtualAccount.Get().ChannelProperties.VirtualAccountNumber,
+			Status:    "PENDING",
+			ExpiredAt: &request.ExpiredAt,
+		}
+
+		orderReq = domain.OrderUser{
+			ID:        helper.GenerateId(),
+			UserID:    userId,
+			PaymentId: resp.PaymentMethod.Id,
+			StartDate: req.StartdDate,
+			EndDate:   req.EndDate,
+			Desc:      req.Desc,
+			OrderID:   *resp.PaymentMethod.ReferenceId,
+			ProductID: &req.ProductId,
+			Type:      paymentType,
+			Price:     totalPrice,
+		}
+
+		err = s.paymentRepository.CreateOrder(ctx, orderReq, paymentReq, reqImg, reqIvs)
+		if err != nil {
+			return web.PaymentHistory{}, web.ErrInternalServer(err.Error())
+		}
 	}
 
 	data, err := s.GetPaymentByOrderId(ctx, orderReq.OrderID)

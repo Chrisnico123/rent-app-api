@@ -14,6 +14,7 @@ type PaymentHistory struct {
 	Username      string        `json:"username"`
 	Email         string        `json:"email"`
 	PaymentId     string        `json:"payment_id"`
+	Method        string        `json:"method"`
 	OrderID       string        `json:"order_id"`
 	StartDate     string        `json:"start_date"`
 	EndDate       string        `json:"end_date"`

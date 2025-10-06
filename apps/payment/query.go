@@ -2,6 +2,7 @@ package payment
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"rent-application/domain"
@@ -644,6 +645,7 @@ func (q *PaymentQueryImpl) GetPaymentByOrderID(ctx context.Context, db *pgxpool.
             ph.updated_at,
             ph.expired_at,
             p.id as product_id,
+			ou.type,
             ou.start_date,
             ou.end_date,
             (ou.end_date::date - ou.start_date::date) AS booking_days
@@ -659,7 +661,8 @@ func (q *PaymentQueryImpl) GetPaymentByOrderID(ctx context.Context, db *pgxpool.
             ph.order_id = $1`
 
 	var payment domain.PaymentResponse
-	var createdAt, updatedAt, expiredAt time.Time
+	var createdAt, updatedAt time.Time
+	var expiredAt sql.NullTime
 
 	err := db.QueryRow(ctx, query, orderID).Scan(
 		&payment.ID,
@@ -674,6 +677,7 @@ func (q *PaymentQueryImpl) GetPaymentByOrderID(ctx context.Context, db *pgxpool.
 		&updatedAt,
 		&expiredAt,
 		&payment.ProductId,
+		&payment.Method,
 		&payment.StartDate,
 		&payment.EndDate,
 		&payment.BookingDays,
@@ -689,7 +693,13 @@ func (q *PaymentQueryImpl) GetPaymentByOrderID(ctx context.Context, db *pgxpool.
 	// Convert time to Asia/Jakarta using helper
 	payment.CreatedAt = helper.ConvertToJakarta(createdAt)
 	payment.UpdatedAt = helper.ConvertToJakarta(updatedAt)
-	payment.ExpiredAt = helper.ConvertToJakarta(expiredAt)
+	// Handle NULL expired_at - only convert if it's valid
+	if expiredAt.Valid {
+		payment.ExpiredAt = helper.ConvertToJakarta(expiredAt.Time)
+	} else {
+		// Set to zero value or whatever makes sense for your domain
+		payment.ExpiredAt = ""
+	}
 
 	return payment, nil
 }

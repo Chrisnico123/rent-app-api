@@ -41,6 +41,7 @@ type PaymentResponse struct {
 	Username    string
 	Email       string
 	UserID      string
+	Method      string
 	PaymentId   string
 	OrderID     string
 	ProductId   string

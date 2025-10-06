@@ -57,8 +57,8 @@ func (r *BookRequest) Validate() error {
 	}
 
 	// Validate TypeVA
-	if r.TypeVA < 1 || r.TypeVA > 3 {
-		return errors.New("type must be between 1 and 3")
+	if r.TypeVA < 1 || r.TypeVA > 4 {
+		return errors.New("type must be between 1 and 4")
 	}
 
 	return nil
