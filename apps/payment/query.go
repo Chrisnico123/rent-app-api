@@ -284,6 +284,10 @@ func (q *PaymentQueryImpl) GetPaymentHistory(ctx context.Context, db *pgxpool.Po
             ph.order_id,
             p.name AS product_name,
             ou.price,
+            u.username,
+            u.email,
+ 			ou.start_date,
+ 			ou.end_date, 
             p.img,
             ph.status,
             ou.type AS method,
@@ -293,6 +297,8 @@ func (q *PaymentQueryImpl) GetPaymentHistory(ctx context.Context, db *pgxpool.Po
             payment_history ph
         JOIN 
             order_user ou ON ph.order_id = ou.order_id
+		JOIN
+			users u ON ph.user_id = u.id
         LEFT JOIN 
             product p ON ou.product_id = p.id 
             %s
@@ -318,6 +324,10 @@ func (q *PaymentQueryImpl) GetPaymentHistory(ctx context.Context, db *pgxpool.Po
 			&history.OrderId,
 			&history.ProductName,
 			&price,
+			&history.CustomerName,
+			&history.Email,
+			&history.StartDate,
+			&history.EndDate,
 			&imgBytes,
 			&history.Status,
 			&history.Method,

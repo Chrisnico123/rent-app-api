@@ -170,14 +170,18 @@ func (s *paymentService) GetPaymentListPayment(ctx context.Context, filter web.F
 	list := make([]web.PaymentHistoryResponse, 0, len(datas))
 	for _, v := range datas {
 		data := web.PaymentHistoryResponse{
-			OrderId:     v.OrderId,
-			ProductName: v.ProductName,
-			Price:       v.Price,
-			Img:         v.Img[0],
-			Status:      v.Status,
-			Method:      v.Method,
-			CreatedDate: v.CreatedDate,
-			ExpiredDate: v.ExpiredDate,
+			OrderId:      v.OrderId,
+			ProductName:  v.ProductName,
+			CustomerName: v.CustomerName,
+			Email:        v.Email,
+			StartDate:    v.StartDate,
+			EndDate:      v.EndDate,
+			Price:        v.Price,
+			Img:          v.Img[0],
+			Status:       v.Status,
+			Method:       v.Method,
+			CreatedDate:  v.CreatedDate,
+			ExpiredDate:  v.ExpiredDate,
 		}
 		list = append(list, data)
 	}

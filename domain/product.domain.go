@@ -57,6 +57,7 @@ type ProductResponse struct {
 
 type FilterProduct struct {
 	Search     string
+	UserId     string
 	CategoryID string
 	Sort       string
 	Pagination Pagination
@@ -85,6 +86,7 @@ func ToDomainFilterProduct(q web.FilterProduct) FilterProduct {
 
 	return FilterProduct{
 		Search:     q.Search,
+		UserId:     q.UserId,
 		CategoryID: q.CategoryID,
 		Sort:       q.Sort,
 		Pagination: Pagination{
@@ -96,6 +98,10 @@ func ToDomainFilterProduct(q web.FilterProduct) FilterProduct {
 
 func (f *FilterProduct) QueryBuildFilterProduct() (filter, sort, pagination string) {
 	filter = BuildProductQuerySearch(f.Search)
+
+	if f.UserId != "" {
+		filter += fmt.Sprintf(" AND p.seller_id = '%s'", f.UserId)
+	}
 
 	if f.CategoryID != "" {
 		filter += fmt.Sprintf(" AND category_id = '%s'", f.CategoryID)

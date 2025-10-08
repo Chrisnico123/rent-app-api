@@ -6,4 +6,5 @@ type FilterProduct struct {
 	Sort       string `query:"sort"`
 	Page       string `query:"page"`
 	Limit      string `query:"limit"`
+	UserId     string
 }

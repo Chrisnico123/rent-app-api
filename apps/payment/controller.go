@@ -35,7 +35,7 @@ func (c *paymentController) Route(apps *fiber.App) {
 		middleware.RoleBasedAuth(constants.RoleCustomerString),
 		c.PaymentBooking)
 	app.Get("/book/:order_id",
-		middleware.RoleBasedAuth(constants.RoleCustomerString),
+		middleware.RoleBasedAuth(constants.RolePublicString),
 		c.GetPaymentBooking)
 
 	app.Get("/credit/history",

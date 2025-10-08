@@ -56,16 +56,19 @@ type PaymentResponse struct {
 }
 
 type PaymentHistoryResponse struct {
-	OrderId     string
-	ProductName string
-	Price       string
-	Img         []string
-	Status      string
-	Method      string
-	CreatedDate string
-	ExpiredDate string
+	OrderId      string
+	CustomerName string
+	Email        string
+	StartDate    string
+	EndDate      string
+	ProductName  string
+	Price        string
+	Img          []string
+	Status       string
+	Method       string
+	CreatedDate  string
+	ExpiredDate  string
 }
-
 type FilterPaymentHistory struct {
 	Search     string
 	UserId     string

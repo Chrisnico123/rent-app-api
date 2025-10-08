@@ -56,6 +56,9 @@ func (controller *categoryController) Route(apps *fiber.App) {
 
 	app.Get("/:id", controller.GetProductByID)
 	app.Get("/", controller.ListProduct)
+	app.Get("/list/seller",
+		middleware.RoleBasedAuth(constants.RoleSellerString),
+		controller.ListProductSeller)
 
 	// Banner routes
 	app.Post("/banner",
@@ -205,6 +208,46 @@ func (controller *categoryController) ListBanner(c *fiber.Ctx) error {
 	})
 }
 
+func (controller *categoryController) ListProductSeller(c *fiber.Ctx) error {
+	var filter web.FilterProduct
+	if err := c.QueryParser(&filter); err != nil {
+		return web.ErrValidateBadRequest(err.Error(), filter)
+	}
+
+	roleValue := c.Locals("roleID")
+
+	roleID, _ := roleValue.(int)
+
+	if roleID == constants.SellerRole {
+		userIDValue := c.Locals("userID")
+		if userIDValue == nil {
+			return web.ErrBadRequest("userID not found in context")
+		}
+		userID, ok := userIDValue.(string)
+		if !ok || userID == "" {
+			return web.ErrBadRequest("invalid userID format")
+		}
+		filter.UserId = userID
+	}
+
+	result, count, err := controller.productService.GetAllProducts(c.Context(), filter)
+	if err != nil {
+		return web.ErrInternalServer(err.Error())
+	}
+
+	pageInt, _ := strconv.Atoi(filter.Page)
+
+	return c.Status(fiber.StatusOK).JSON(web.WebResponsePagination{
+		Code:      fiber.StatusOK,
+		Status:    true,
+		Page:      pageInt,
+		Count:     len(result),
+		TotalData: count,
+		Message:   "success",
+		Data:      result,
+	})
+}
+
 func (controller *categoryController) ListProduct(c *fiber.Ctx) error {
 	var filter web.FilterProduct
 	if err := c.QueryParser(&filter); err != nil {
@@ -233,6 +276,16 @@ func (controller *categoryController) CreateProduct(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return web.ErrValidateBadRequest(err.Error(), req)
 	}
+	// Get userID from locals with proper type assertion
+	userIDValue := c.Locals("userID")
+	if userIDValue == nil {
+		return web.ErrBadRequest("userID not found in context")
+	}
+	userID, ok := userIDValue.(string)
+	if !ok || userID == "" {
+		return web.ErrBadRequest("invalid userID format")
+	}
+	req.SellerID = userID
 	err := controller.productService.CreateProduct(c.Context(), req)
 	if err != nil {
 		return web.ErrInternalServer(err.Error())

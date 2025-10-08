@@ -20,6 +20,7 @@ func (c Category) ValidateCategory() error {
 
 type Product struct {
 	ID          string   `json:"id"`
+	SellerID    string   `json:"seller_id"`
 	Name        string   `json:"name"`
 	Description []string `json:"description"`
 	Available   bool     `json:"available"`

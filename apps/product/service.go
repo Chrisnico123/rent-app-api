@@ -182,7 +182,7 @@ func (s *productService) CreateProduct(ctx context.Context, product Product) err
 
 	domainProduct := domain.Product{
 		ID:          helper.GenerateId(),
-		SellerID:    "asd",
+		SellerID:    product.SellerID,
 		Available:   product.Available,
 		Name:        product.Name,
 		CategoryID:  product.CategoryID,
